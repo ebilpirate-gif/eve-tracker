@@ -19,6 +19,8 @@ from .worker import Worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("web")
+# httpx logs every request at INFO: thousands of lines per market refresh, all hitting the SD card.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 HERE = Path(__file__).parent
 
 

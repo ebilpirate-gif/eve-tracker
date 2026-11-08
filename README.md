@@ -27,7 +27,7 @@ It's a single Python process (FastAPI + SQLite) with a built-in background sched
 
 ## Requirements
 
-- Raspberry Pi 3B+ or newer, on 64-bit Raspberry Pi OS (Bookworm). The app uses about 60–160 MB of RAM. Tracking all five hubs every 30 minutes downloads roughly 1 GB a day (compressed); track fewer hubs or refresh less often in Settings to reduce that.
+- Raspberry Pi 3B+ or newer, on 64-bit Raspberry Pi OS (Bookworm). The app uses about 60–200 MB of RAM, and the systemd service caps its memory and CPU so the Pi stays responsive. Jita and Amarr are tracked by default (about 0.5 GB/day of compressed downloads); enable Dodixie, Rens and Hek in Settings if your Pi has room. On a Pi 3 the first start takes 10–20 minutes.
 - Python 3.10+ (Bookworm ships 3.11).
 - Roughly 300 MB of disk for the database.
 

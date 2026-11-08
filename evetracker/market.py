@@ -88,7 +88,7 @@ class _HubAggregator:
 async def update_hub(esi: ESI, hub_key: str) -> str:
     hub = HUBS[hub_key]
     agg = _HubAggregator(hub["station_id"])
-    await esi.get_pages(f"/markets/{hub['region_id']}/orders/", {"order_type": "all"}, concurrency=8, on_page=agg)
+    await esi.get_pages(f"/markets/{hub['region_id']}/orders/", {"order_type": "all"}, concurrency=4, on_page=agg)
     rows = [(hub["station_id"], tid, r[0] or None, r[1], r[2], r[3], r[4], r[5]) for tid, r in agg.data.items()]
     with db.tx() as c:
         c.execute("DELETE FROM hub_prices WHERE station_id = ?", (hub["station_id"],))
@@ -114,7 +114,15 @@ async def update_history(esi: ESI, region_id: int, type_ids, max_age_hours: floa
     known = {r[0] for r in db.q(
         "SELECT type_id FROM market_history WHERE region_id = ? AND fetched_at > ?", (region_id, fresh_before))}
     todo = [t for t in dict.fromkeys(type_ids) if t not in known]
-    sem = asyncio.Semaphore(4)
+    sem = asyncio.Semaphore(3)
+    pending = []
+
+    def flush():
+        # Batch writes: one transaction per 200 items is far kinder to an SD card.
+        if pending:
+            with db.tx() as c:
+                c.executemany("INSERT OR REPLACE INTO market_history VALUES (?, ?, ?, ?, ?)", pending)
+            pending.clear()
 
     async def one(tid):
         async with sem:
@@ -125,10 +133,14 @@ async def update_history(esi: ESI, region_id: int, type_ids, max_age_hours: floa
                     raise
                 entries = []
             vol, price = summarize_history(entries)
-            db.ex("INSERT OR REPLACE INTO market_history VALUES (?, ?, ?, ?, ?)",
-                  (region_id, tid, vol, price, time.time()))
+            pending.append((region_id, tid, vol, price, time.time()))
+            if len(pending) >= 200:
+                flush()
 
-    await asyncio.gather(*(one(t) for t in todo))
+    try:
+        await asyncio.gather(*(one(t) for t in todo))
+    finally:
+        flush()
     return len(todo)
 
 

@@ -161,7 +161,7 @@ DEFAULT_SETTINGS = {
     "broker_fee_pct": None,      # None = derive from best Broker Relations skill
     "valuation_hub": "jita",
     "valuation_side": "sell",    # "sell" (best sell order) or "buy" (best buy order)
-    "hubs": ["jita", "amarr", "dodixie", "rens", "hek"],
+    "hubs": ["jita", "amarr"],  # each extra hub costs bandwidth and CPU; enable more in Settings
     "hub_refresh_minutes": 30,
     "industry_hub": "jita",
     "industry_system": "Jita",

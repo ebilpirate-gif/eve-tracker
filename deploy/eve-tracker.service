@@ -8,11 +8,22 @@ Type=simple
 User=__USER__
 WorkingDirectory=__DIR__
 EnvironmentFile=__DIR__/.env
+# Fewer malloc arenas = much less memory fragmentation on small Pis.
+Environment=MALLOC_ARENA_MAX=2
 # Single worker on purpose: the background sync runs inside the web process.
 ExecStart=__DIR__/.venv/bin/uvicorn evetracker.web:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers
 Restart=on-failure
-RestartSec=10
-Nice=5
+RestartSec=30
+
+# Keep the Pi usable no matter what the app does: low CPU/disk priority, capped
+# memory (the app is restarted rather than letting the whole Pi swap itself to death).
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=150%
+MemoryHigh=300M
+MemoryMax=450M
+MemorySwapMax=50M
 
 [Install]
 WantedBy=multi-user.target

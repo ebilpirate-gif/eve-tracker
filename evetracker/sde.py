@@ -1,6 +1,6 @@
 """Static Data Export import from Fuzzwork's CSV dumps (types, blueprints, map, stations)."""
+import asyncio
 import csv
-import io
 import logging
 import time
 
@@ -50,32 +50,40 @@ TABLES = {
 }
 
 
-def import_csv(name: str, text: str) -> int:
+def import_csv(name: str, path) -> int:
+    """Stream a CSV file into its table (never holds the whole file in memory)."""
     table, cols, conv = TABLES[name]
-    reader = csv.DictReader(io.StringIO(text.lstrip("﻿"), newline=""))
     count = 0
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
 
-    def rows():
-        nonlocal count
-        for r in reader:
-            count += 1
-            yield conv(r)
+        def rows():
+            nonlocal count
+            for r in reader:
+                count += 1
+                yield conv(r)
 
-    with db.tx() as c:
-        c.execute(f"DELETE FROM {table}")
-        c.executemany(f"INSERT OR REPLACE INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", rows())
+        with db.tx() as c:
+            c.execute(f"DELETE FROM {table}")
+            c.executemany(f"INSERT OR REPLACE INTO {table} ({', '.join(cols)}) "
+                          f"VALUES ({', '.join('?' * len(cols))})", rows())
     return count
 
 
 async def update_sde() -> str:
     SDE_DIR.mkdir(parents=True, exist_ok=True)
     counts = []
-    async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
         for name in TABLES:
-            resp = await client.get(BASE_URL + name + ".csv")
-            resp.raise_for_status()
-            text = resp.content.decode("utf-8-sig")
-            counts.append(f"{name}={import_csv(name, text)}")
+            path = SDE_DIR / f"{name}.csv"
+            async with client.stream("GET", BASE_URL + name + ".csv") as resp:
+                resp.raise_for_status()
+                with open(path, "wb") as fh:
+                    async for chunk in resp.aiter_bytes(1 << 16):
+                        fh.write(chunk)
+            # Import in a thread so the web UI stays responsive on slow hardware.
+            counts.append(f"{name}={await asyncio.to_thread(import_csv, name, path)}")
+            path.unlink(missing_ok=True)
             log.info("SDE %s imported", name)
     db.set_kv("sde_updated", time.time())
     return ", ".join(counts)
