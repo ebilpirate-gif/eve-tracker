@@ -11,7 +11,7 @@ It's a single Python process (FastAPI + SQLite) with a built-in background sched
 
 ## Requirements
 
-- Raspberry Pi 3B+ or newer (a Pi 4/5 is recommended; tracking all five hubs downloads ~1,000 pages of market orders every 30 minutes). 64-bit Raspberry Pi OS (Bookworm) is recommended.
+- Raspberry Pi 3B+ or newer, on 64-bit Raspberry Pi OS (Bookworm). The app uses about 60–160 MB of RAM. Tracking all five hubs every 30 minutes downloads roughly 1 GB a day (compressed); track fewer hubs or refresh less often in Settings to reduce that.
 - Python 3.10+ (Bookworm ships 3.11).
 - Roughly 300 MB of disk for the database.
 

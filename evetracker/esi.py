@@ -130,12 +130,13 @@ class ESI:
         async def fetch(page):
             async with sem:
                 resp = await self.request("GET", path, params={**params, "page": page}, token=token)
-                return resp.json()
+                # Handle the page right away and return nothing, so finished tasks don't keep
+                # every parsed page alive until the end (Jita alone is ~400 pages).
+                handle(resp.json())
 
         tasks = [asyncio.create_task(fetch(p)) for p in range(2, pages + 1)]
         try:
-            for coro in asyncio.as_completed(tasks):
-                handle(await coro)
+            await asyncio.gather(*tasks)
         finally:
             for t in tasks:
                 t.cancel()
