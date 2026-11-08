@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS stations (station_id INTEGER PRIMARY KEY, name TEXT, 
 CREATE TABLE IF NOT EXISTS characters (
     character_id INTEGER PRIMARY KEY, name TEXT, corporation_id INTEGER,
     refresh_token TEXT, access_token TEXT, access_expires REAL, scopes TEXT,
-    added_at REAL, last_sync REAL, sync_error TEXT, needs_reauth INTEGER DEFAULT 0, roles TEXT
+    added_at REAL, last_sync REAL, sync_error TEXT, needs_reauth INTEGER DEFAULT 0, roles TEXT, total_sp INTEGER
 );
 CREATE TABLE IF NOT EXISTS corporations (
     corporation_id INTEGER PRIMARY KEY, name TEXT, ticker TEXT, ceo_id INTEGER, enabled INTEGER DEFAULT 1,
@@ -114,6 +114,25 @@ CREATE TABLE IF NOT EXISTS market_history (
 CREATE TABLE IF NOT EXISTS cost_indices (system_id INTEGER, activity TEXT, cost_index REAL,
     PRIMARY KEY (system_id, activity));
 CREATE TABLE IF NOT EXISTS job_log (job TEXT PRIMARY KEY, last_run REAL, duration REAL, ok INTEGER, message TEXT);
+
+-- ---------- contracts, skill queues, corp structures, names ----------
+CREATE TABLE IF NOT EXISTS contracts (
+    contract_id INTEGER PRIMARY KEY, character_id INTEGER, type TEXT, status TEXT, title TEXT,
+    issuer_id INTEGER, issuer_corporation_id INTEGER, assignee_id INTEGER, acceptor_id INTEGER,
+    for_corporation INTEGER, availability TEXT, price REAL, reward REAL, collateral REAL, buyout REAL,
+    volume REAL, days_to_complete INTEGER, start_location_id INTEGER, end_location_id INTEGER,
+    date_issued TEXT, date_expired TEXT, date_accepted TEXT, date_completed TEXT, items_fetched INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS contracts_owner ON contracts(character_id);
+CREATE TABLE IF NOT EXISTS contract_items (contract_id INTEGER, record_id INTEGER, type_id INTEGER,
+    quantity INTEGER, is_included INTEGER, is_singleton INTEGER, PRIMARY KEY (contract_id, record_id));
+CREATE TABLE IF NOT EXISTS skillqueue (character_id INTEGER, queue_position INTEGER, skill_id INTEGER,
+    finished_level INTEGER, start_date TEXT, finish_date TEXT, PRIMARY KEY (character_id, queue_position));
+CREATE TABLE IF NOT EXISTS corp_structures (
+    structure_id INTEGER PRIMARY KEY, corporation_id INTEGER, name TEXT, type_id INTEGER, system_id INTEGER,
+    state TEXT, state_timer_end TEXT, fuel_expires TEXT, reinforce_hour INTEGER, services TEXT, updated REAL
+);
+CREATE TABLE IF NOT EXISTS names (id INTEGER PRIMARY KEY, name TEXT, category TEXT);
 """
 
 _local = threading.local()
@@ -158,7 +177,8 @@ def _rebuild(c, table: str, keep_cols) -> None:
 
 def migrate(c) -> None:
     """Upgrade databases created by older versions in place."""
-    for table, col, decl in (("characters", "roles", "TEXT"), ("orders", "wallet_division", "INTEGER")):
+    for table, col, decl in (("characters", "roles", "TEXT"), ("orders", "wallet_division", "INTEGER"),
+                             ("characters", "total_sp", "INTEGER")):
         if col not in _columns(c, table):
             c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     # Corporation support: transactions/journal need composite keys (the same id can appear
@@ -219,6 +239,9 @@ DEFAULT_SETTINGS = {
     "industry_structure_me_bonus_pct": 0.0,
     "industry_default_me": 10,
     "industry_material_side": "sell",
+    "alert_fuel_days": 7,          # warn when a structure has less fuel than this
+    "alert_skillqueue_hours": 24,  # warn when a skill queue ends sooner than this
+    "ui_character_id": None,       # whose EVE client "Open in EVE" talks to (None = first able)
 }
 
 

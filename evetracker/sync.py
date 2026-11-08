@@ -20,6 +20,8 @@ STEPS = {
     "industry": (600, "esi-industry.read_character_jobs.v1"),
     "blueprints": (3600, "esi-characters.read_blueprints.v1"),
     "skills": (3600, "esi-skills.read_skills.v1"),
+    "skillqueue": (900, "esi-skills.read_skillqueue.v1"),
+    "contracts": (900, "esi-contracts.read_character_contracts.v1"),
 }
 
 async def sync_character(esi: ESI, char_id: int, force: bool = False) -> dict:
@@ -222,7 +224,23 @@ async def sync_skills(esi, cid, token):
         c.execute("DELETE FROM skills WHERE character_id = ?", (cid,))
         c.executemany("INSERT INTO skills VALUES (?, ?, ?)",
                       [(cid, s["skill_id"], s["active_skill_level"]) for s in data["skills"]])
+        c.execute("UPDATE characters SET total_sp = ? WHERE character_id = ?", (data.get("total_sp"), cid))
     return f"{len(data['skills'])} skills"
+
+
+async def sync_skillqueue(esi, cid, token):
+    data = await esi.get(f"/characters/{cid}/skillqueue/", token=token)
+    with db.tx() as c:
+        c.execute("DELETE FROM skillqueue WHERE character_id = ?", (cid,))
+        c.executemany("INSERT OR REPLACE INTO skillqueue VALUES (?, ?, ?, ?, ?, ?)",
+                      [(cid, q.get("queue_position", i), q["skill_id"], q.get("finished_level"),
+                        q.get("start_date"), q.get("finish_date")) for i, q in enumerate(data)])
+    return f"{len(data)} skills queued"
+
+
+async def sync_contracts(esi, cid, token):
+    from . import contracts
+    return await contracts.sync_for_character(esi, cid, token)
 
 
 # ---------- net worth ----------

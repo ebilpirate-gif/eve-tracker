@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
 {% block content %}
 <div class="tabs">
   <a href="?mode=station&hub={{ hub }}" class="{{ 'on' if mode == 'station' }}">Station trading</a>
@@ -38,7 +39,7 @@
     <tbody>
     {% for r in rows %}
       <tr>
-        <td><img class="icon" src="https://images.evetech.net/types/{{ r.type_id }}/icon?size=32" alt="" loading="lazy"> {{ r.name }}</td>
+        <td><img class="icon" src="https://images.evetech.net/types/{{ r.type_id }}/icon?size=32" alt="" loading="lazy"> {{ r.name }} {{ ui.eve(r.type_id) }}</td>
         <td class="r" data-v="{{ r.buy }}">{{ r.buy|isk }}</td>
         <td class="r" data-v="{{ r.sell }}">{{ r.sell|isk }}</td>
         <td class="r good" data-v="{{ r.profit }}">{{ r.profit|isk }}</td>
@@ -53,12 +54,13 @@
     </tbody>
   </table>
 {% else %}
+  {% if ui_enabled %}<p class="small">Route: {{ ui.dest(HUBS[src].station_id, 'to ' ~ HUBS[src].name) }} then {{ ui.dest(HUBS[dst].station_id, 'to ' ~ HUBS[dst].name) }}</p>{% endif %}
   <table class="sortable">
     <thead><tr><th>Item</th><th class="r">Buy at {{ HUBS[src].name }}</th><th class="r">Sell at {{ HUBS[dst].name }}</th><th class="r">Profit/unit</th><th class="r">Margin</th><th class="r">Profit/m³</th><th class="r">Qty</th><th class="r">Investment</th><th class="r">Cargo m³</th><th class="r">Trip profit</th></tr></thead>
     <tbody>
     {% for r in rows %}
       <tr>
-        <td><img class="icon" src="https://images.evetech.net/types/{{ r.type_id }}/icon?size=32" alt="" loading="lazy"> {{ r.name }}</td>
+        <td><img class="icon" src="https://images.evetech.net/types/{{ r.type_id }}/icon?size=32" alt="" loading="lazy"> {{ r.name }} {{ ui.eve(r.type_id) }}</td>
         <td class="r" data-v="{{ r.buy }}">{{ r.buy|isk }}</td>
         <td class="r" data-v="{{ r.sell }}">{{ r.sell|isk }}</td>
         <td class="r good" data-v="{{ r.profit }}">{{ r.profit|isk }}</td>

@@ -128,25 +128,24 @@
     <label>Default ME for unowned blueprints <input name="industry_default_me" type="number" min="0" max="10" value="{{ settings.industry_default_me }}"></label>
   </div>
 </section>
+<section class="card">
+  <h2>Alerts &amp; EVE client</h2>
+  <div class="grid">
+    <label>Warn when a structure has less fuel than (days) <input name="alert_fuel_days" type="text" inputmode="decimal" class="num" value="{{ settings.alert_fuel_days }}"></label>
+    <label>Warn when a skill queue ends within (hours) <input name="alert_skillqueue_hours" type="text" inputmode="decimal" class="num" value="{{ settings.alert_skillqueue_hours }}"></label>
+    <label>"Open in EVE" buttons use
+      <select name="ui_character_id">
+        {% for c in ui_chars %}<option value="{{ c.character_id }}" {{ 'selected' if c.character_id == settings.ui_character_id }}>{{ c.name }}</option>{% else %}<option value="">(no character has the permission yet)</option>{% endfor %}
+      </select>
+      <span class="muted small">That character must be logged in to the game. The ⧉ buttons open an item's market window; ⌖ sets your autopilot destination.</span></label>
+  </div>
+</section>
 <button>Save settings</button>
 </form>
 
 <section class="card">
-  <h2>Background jobs</h2>
-  <table>
-    <thead><tr><th>Job</th><th>Last run</th><th class="r">Took</th><th>Result</th><th></th></tr></thead>
-    <tbody>
-    {% for j in jobs %}
-      <tr>
-        <td>{{ j.job }}</td>
-        <td class="muted">{{ j.last_run|ago }}</td>
-        <td class="r muted">{{ j.duration|num(1) }}s</td>
-        <td class="{{ 'bad' if not j.ok }} small">{{ j.message }}</td>
-        <td>{% if j.job in running %}<span class="tag">running</span>{% else %}<form method="post" action="/jobs/{{ j.job }}"><button class="small">Run</button></form>{% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+  <h2>System</h2>
+  <p>Pi temperature, memory, SD card space, database size and background jobs: <a class="button" href="/system">Open System page</a></p>
   {% if steps %}
   <details><summary class="muted">Per-character sync steps</summary>
     <table><tbody>{% for s in steps %}<tr><td>{{ s.name }}</td><td>{{ s.step }}</td><td class="muted">{{ s.last_run|ago }}</td><td class="bad small">{{ s.error or '' }}</td></tr>{% endfor %}</tbody></table>

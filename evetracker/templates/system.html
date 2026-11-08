@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}System – EVE Tracker{% endblock %}
+{% block content %}
+<p><a href="/settings">← Settings</a></p>
+{% for level, text in h.warnings %}<p class="banner {{ 'bad-banner' if level == 'bad' }}">⚠ {{ text }}</p>{% endfor %}
+
+<section class="card">
+  <h2>{{ h.model or 'This computer' }}</h2>
+  <div class="stats">
+    <div class="stat"><span>Temperature</span><b class="{{ 'bad' if h.temp_c and h.temp_c >= 75 }}">{{ '%.0f°C'|format(h.temp_c) if h.temp_c is not none else '–' }}</b></div>
+    <div class="stat"><span>Memory available</span><b>{{ h.mem_available_mb|num }} MB</b><div class="muted small">of {{ h.mem_total_mb|num }} MB{% if h.swap_used_mb %} · swap used {{ h.swap_used_mb|num }} MB{% endif %}</div></div>
+    <div class="stat"><span>SD card free</span><b class="{{ 'bad' if h.disk_free_gb < 1 }}">{{ h.disk_free_gb|num(1) }} GB</b><div class="muted small">of {{ h.disk_total_gb|num(1) }} GB ({{ h.disk_free_pct|num }}% free)</div></div>
+    <div class="stat"><span>Database</span><b>{{ h.db_mb|num }} MB</b></div>
+    <div class="stat"><span>App memory</span><b>{{ h.app_rss_mb|num }} MB</b></div>
+    <div class="stat"><span>Load (1/5/15 min)</span><b>{{ h.load|map('round', 2)|join(' / ') if h.load else '–' }}</b><div class="muted small">{{ h.cpus }} CPU cores</div></div>
+    <div class="stat"><span>Up for</span><b>{{ ((h.uptime_s or 0) / 86400)|num(1) }} days</b><div class="muted small">app restarted {{ (h.app_uptime_s / 3600)|num(1) }}h ago</div></div>
+  </div>
+  <p class="muted small">Warnings appear on the Dashboard when the SD card has under 1 GB (or 10%) free, the Pi runs above 75°C, or memory gets low. Expired cache entries are cleaned out daily.</p>
+</section>
+
+<section class="card">
+  <h2>Stored data</h2>
+  <table>
+    <tbody>{% for t, n in counts.items() %}<tr><td>{{ t|replace('_', ' ') }}</td><td class="r">{{ n|num }} rows</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Background jobs</h2>
+  <table class="sortable">
+    <thead><tr><th>Job</th><th>Last run</th><th class="r">Took</th><th>Result</th><th></th></tr></thead>
+    <tbody>
+    {% for j in jobs %}
+      <tr>
+        <td>{{ j.job }}</td>
+        <td class="muted" data-v="{{ j.last_run }}">{{ j.last_run|ago }}</td>
+        <td class="r muted" data-v="{{ j.duration }}">{{ j.duration|num(1) }}s</td>
+        <td class="{{ 'bad' if not j.ok }} small wrap">{{ j.message }}</td>
+        <td>{% if j.job in running %}<span class="tag">running</span>{% else %}<form method="post" action="/jobs/{{ j.job }}"><button class="small">Run</button></form>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

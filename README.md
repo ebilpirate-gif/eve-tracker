@@ -24,6 +24,13 @@ A self-hosted EVE Online asset tracker and trading tool, built to run on a Raspb
 
 _Screenshots use live market data and a demo character._
 
+- **Contracts:** item-exchange and courier contracts for characters and corporations, with each contract's item value compared against its price.
+- **Alerts on the Dashboard:** undercut orders, structure fuel and reinforcement, skill queues running out, contracts about to expire, finished industry jobs and Pi health problems.
+- **Repricing helper:** each undercut order shows the closest valid price to beat (EVE allows at most 4 significant digits), ready to copy.
+- **Open in EVE:** ⧉ buttons open an item's market window in your running EVE client, and ⌖ sets the autopilot destination.
+- **System page:** Pi temperature, memory, SD-card space, database size and background jobs, with daily cleanup.
+- **CSV export:** every table has a ⬇ CSV button.
+
 It's a single Python process (FastAPI + SQLite) with a built-in background scheduler, so no Redis, Postgres or Docker is needed.
 
 ## Requirements

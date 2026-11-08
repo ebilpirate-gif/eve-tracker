@@ -9,9 +9,8 @@
 </div>
 
 <div class="alerts">
-  {% if undercut %}<a class="alert bad" href="/orders">⚠ {{ undercut }} order{{ 's' if undercut != 1 }} undercut or outbid</a>{% endif %}
-  {% if jobs_ready %}<a class="alert good" href="/industry">✓ {{ jobs_ready }} industry job{{ 's' if jobs_ready != 1 }} ready to deliver</a>{% endif %}
-  {% if jobs_active %}<a class="alert" href="/industry">{{ jobs_active }} industry jobs running</a>{% endif %}
+  {% for a in alerts %}<a class="alert {{ a.level }}" href="{{ a.href }}">{{ '⚠ ' if a.level in ('bad', 'warn') else ('✓ ' if a.level == 'good' else '') }}{{ a.text }}</a>{% endfor %}
+  {% if jobs_active %}<a class="alert" href="/industry">{{ jobs_active }} industry job{{ 's' if jobs_active != 1 }} running</a>{% endif %}
   <span class="alert muted">Prices: {{ hub_updated|ago }}</span>
 </div>
 
@@ -63,4 +62,59 @@
   <p>No characters yet. {% if sso_configured %}<a class="button" href="/sso/login">Add a character</a>{% else %}Configure EVE SSO in <a href="/settings">Settings</a> first.{% endif %}</p>
   {% endif %}
 </section>
+
+{% if structures %}
+<section class="card" id="structures">
+  <h2>Structures</h2>
+  <table class="sortable">
+    <thead><tr><th>Structure</th><th>System</th><th>State</th><th class="r">Fuel left</th><th>Fuel runs out</th><th>Services</th><th>Owner</th></tr></thead>
+    <tbody>
+    {% for st in structures %}
+      <tr class="{{ 'row-bad' if st.danger or st.low_power or st.fuel_low }}">
+        <td><img class="icon" src="https://images.evetech.net/types/{{ st.type_id }}/icon?size=32" alt="" loading="lazy"> {{ st.name }}
+          {% if ui_enabled %}<button type="button" class="eve-btn" data-waypoint="{{ st.structure_id }}" title="Set destination in EVE">⌖</button>{% endif %}</td>
+        <td>{{ location_name(st.system_id)|replace(' (in space)', '') }}</td>
+        <td>{% if st.danger %}<span class="tag bad">{{ st.state_label }}</span>{% if st.state_timer_end %} <span class="muted small">until {{ st.state_timer_end|ago }}</span>{% endif %}
+            {% else %}{{ st.state_label }}{% endif %}</td>
+        <td class="r" data-v="{{ st.fuel_days if st.fuel_days is not none else -1 }}">
+          {% if st.low_power %}<span class="tag bad">low power</span>
+          {% elif st.fuel_days is none %}<span class="muted">–</span>
+          {% else %}<span class="{{ 'bad' if st.fuel_low }}">{{ st.fuel_days|num(1) }} days</span>{% endif %}</td>
+        <td class="muted" data-v="{{ st.fuel_expires or '' }}">{{ st.fuel_expires[:16]|replace('T', ' ') if st.fuel_expires else '' }}</td>
+        <td class="small">{% for sv in st.services %}<span class="tag {{ 'good' if sv.state == 'online' else '' }}">{{ sv.name }}</span>{% endfor %}</td>
+        <td class="muted">{{ st.corp_name }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if queues %}
+<section class="card" id="skills">
+  <h2>Skill queues</h2>
+  <table class="sortable">
+    <thead><tr><th>Character</th><th>Training</th><th>Finishes</th><th class="r">Queued</th><th>Queue ends</th><th class="r">Total SP</th></tr></thead>
+    <tbody>
+    {% for q in queues %}
+      <tr class="{{ 'row-bad' if not q.unknown and not q.paused and (q.count == 0 or (q.hours_left is not none and q.hours_left < queue_hours)) }}">
+        <td><img class="portrait" src="https://images.evetech.net/characters/{{ q.character_id }}/portrait?size=32" alt="" loading="lazy"> {{ q.name }}</td>
+        {% if q.unknown %}
+          <td colspan="5" class="muted small">Log in again with this character to show its skill queue.</td>
+        {% elif q.count == 0 %}
+          <td colspan="4"><span class="tag bad">queue empty</span></td>
+          <td class="r" data-v="{{ q.total_sp or 0 }}">{{ q.total_sp|num }}</td>
+        {% else %}
+          <td>{{ type_name(q.current.skill_id) }} {{ ['', 'I', 'II', 'III', 'IV', 'V'][q.current.level or 0] }}</td>
+          <td data-v="{{ q.current.finish or '' }}">{{ q.current.finish|ago if q.current.finish else 'paused' }}</td>
+          <td class="r">{{ q.count }}</td>
+          <td data-v="{{ q.ends or '' }}">{% if q.paused %}<span class="tag">paused</span>{% else %}<span class="{{ 'bad' if q.hours_left < queue_hours }}">{{ q.ends|ago }}</span>{% endif %}</td>
+          <td class="r" data-v="{{ q.total_sp or 0 }}">{{ q.total_sp|num }}</td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
 {% endblock %}

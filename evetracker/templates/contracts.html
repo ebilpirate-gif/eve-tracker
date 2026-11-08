@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block content %}
+<div class="tabs">
+  <a href="?view=open&char={{ char }}" class="{{ 'on' if view == 'open' }}">Open</a>
+  <a href="?view=finished&char={{ char }}" class="{{ 'on' if view == 'finished' }}">Finished</a>
+</div>
+<form class="filters" method="get">
+  <input type="hidden" name="view" value="{{ view }}">
+  <label>Owner <select name="char"><option value="0">All</option>
+    {% for c in chars %}<option value="{{ c.owner_id }}" {{ 'selected' if c.owner_id == char }}>{{ c.name }}</option>{% endfor %}</select></label>
+  <button>Filter</button>
+</form>
+{% if not has_scope %}
+<p class="banner">Contracts need a new permission: add <code>esi-contracts.read_character_contracts.v1</code> and <code>esi-contracts.read_corporation_contracts.v1</code> to your EVE application, then log in again from <a href="/settings">Settings</a>.</p>
+{% endif %}
+
+<section class="card">
+  <table class="sortable">
+    <thead><tr><th>Type</th><th>Title / items</th><th>Status</th><th class="r">Price</th><th class="r" title="Items you give, valued at your valuation hub">Items value</th>
+      <th class="r">Reward</th><th class="r">Collateral</th><th>From → To</th><th>Issuer</th><th>Accepted by</th><th>{{ 'Expires' if view == 'open' else 'Completed' }}</th><th>Owner</th></tr></thead>
+    <tbody>
+    {% for c in rows %}
+      <tr class="{{ 'row-bad' if c.expired }}">
+        <td>{{ c.type_label }}{% if c.for_corporation %} <span class="tag">corp</span>{% endif %}</td>
+        <td class="wrap">
+          {% if c.title %}<b>{{ c.title }}</b><br>{% endif %}
+          {% for i in c['items'][:4] %}<span class="{{ '' if i.is_included else 'muted' }}">{{ '' if i.is_included else 'wants ' }}{{ i.quantity|num }} × {{ type_name(i.type_id) }}</span>{{ ui.eve(i.type_id) if loop.first }}<br>{% endfor %}
+          {% if c['items']|length > 4 %}<span class="muted small">+{{ c['items']|length - 4 }} more</span>{% endif %}
+          {% if not c['items'] and c.volume %}<span class="muted small">{{ c.volume|num }} m³</span>{% endif %}
+        </td>
+        <td>{% if c.expired %}<span class="tag bad">expired</span>{% else %}<span class="tag {{ 'good' if c.status in ('finished', 'finished_issuer', 'finished_contractor') else '' }}">{{ c.status|replace('_', ' ') }}</span>{% endif %}</td>
+        <td class="r" data-v="{{ c.price or 0 }}">{{ c.price|isk if c.price }}</td>
+        <td class="r" data-v="{{ c.item_value }}">{% if c.item_value %}{{ c.item_value|isk }}
+          {% if c.type == 'item_exchange' and c.price and c.mine %}<br><span class="small {{ 'good' if c.price >= c.item_value else 'bad' }}">{{ '%+.0f'|format((c.price / c.item_value - 1) * 100) }}% vs value</span>{% endif %}{% endif %}</td>
+        <td class="r" data-v="{{ c.reward or 0 }}">{{ c.reward|isk if c.reward }}</td>
+        <td class="r" data-v="{{ c.collateral or 0 }}">{{ c.collateral|isk if c.collateral }}</td>
+        <td class="small wrap">{{ location_name(c.start_location_id) }} {{ ui.dest(c.start_location_id) }}
+          {% if c.end_location_id and c.end_location_id != c.start_location_id %}<br>→ {{ location_name(c.end_location_id) }} {{ ui.dest(c.end_location_id) }}{% endif %}</td>
+        <td class="small">{{ entity_name(c.issuer_id) }}</td>
+        <td class="small">{{ entity_name(c.acceptor_id) if c.acceptor_id }}</td>
+        <td class="small" data-v="{{ c.date_expired if view == 'open' else c.date_completed }}">{{ (c.date_expired if view == 'open' else c.date_completed)|ago }}</td>
+        <td class="muted small">{{ c.owner_name }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="12" class="muted">No {{ view }} contracts{{ ' yet' if view == 'open' }}. EVE only shows contracts from the last 30 days, and the tracker keeps what it has seen.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

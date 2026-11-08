@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
 {% block content %}
 {% if jobs %}
 <section class="card">
@@ -48,7 +49,7 @@
     {% for r in rows %}
       <tr>
         <td><img class="icon" src="https://images.evetech.net/types/{{ r.product_id }}/icon?size=32" alt="" loading="lazy">
-          <a href="/industry/{{ r.bp_type_id }}?runs={{ runs }}">{{ r.product_name }}</a>{% if r.owned %} <span class="tag good">owned</span>{% endif %}</td>
+          <a href="/industry/{{ r.bp_type_id }}?runs={{ runs }}">{{ r.product_name }}</a> {{ ui.eve(r.product_id) }}{% if r.owned %} <span class="tag good">owned</span>{% endif %}</td>
         <td class="r">{{ r.me }}/{{ r.te }}</td>
         <td class="r" data-v="{{ r.material_cost }}">{{ r.material_cost|isk }}</td>
         <td class="r" data-v="{{ r.job_cost }}">{{ r.job_cost|isk }}</td>

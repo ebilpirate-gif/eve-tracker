@@ -16,6 +16,7 @@
     <a href="/assets" class="{{ 'on' if nav == 'assets' }}">Assets</a>
     <a href="/trade" class="{{ 'on' if nav == 'trade' }}">Trading</a>
     <a href="/orders" class="{{ 'on' if nav == 'orders' }}">Orders &amp; Wallet</a>
+    <a href="/contracts" class="{{ 'on' if nav == 'contracts' }}">Contracts</a>
     <a href="/industry" class="{{ 'on' if nav == 'industry' }}">Industry</a>
     <a href="/settings" class="{{ 'on' if nav == 'settings' }}">Settings</a>
     <a href="/logout">Log out</a>
@@ -31,5 +32,6 @@
 {% endif %}
 {% block content %}{% endblock %}
 </main>
+<div id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>

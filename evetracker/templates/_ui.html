@@ -1,0 +1,10 @@
+{# Small buttons that talk to the player's running EVE client (needs the esi-ui permissions). #}
+{% macro eve(type_id) -%}
+{% if ui_enabled %}<button type="button" class="eve-btn" data-market="{{ type_id }}" title="Open this item's market in EVE">⧉</button>{% endif %}
+{%- endmacro %}
+{% macro dest(location_id, label="") -%}
+{% if ui_enabled and location_id %}<button type="button" class="eve-btn" data-waypoint="{{ location_id }}" title="Set as autopilot destination in EVE">⌖{{ ' ' ~ label if label }}</button>{% endif %}
+{%- endmacro %}
+{% macro copy(value, text) -%}
+<button type="button" class="small copy-btn" data-copy-text="{{ value }}" title="Copy {{ value }}">{{ text }}</button>
+{%- endmacro %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
 {% block content %}
 <div class="stats">
   {% for w in wallets %}<div class="stat"><span>{{ w.name }}</span><b>{{ w.balance|isk }}</b>
@@ -11,23 +12,24 @@
   <h2>Open orders <span class="muted small">competitors checked {{ last_check|ago }}</span>
     <form class="inline" method="post" action="/jobs/undercut"><button class="small">Check now</button></form></h2>
   <table class="sortable">
-    <thead><tr><th>Item</th><th>Side</th><th class="r">My price</th><th class="r">Best rival</th><th>Status</th><th class="r">Remaining</th><th class="r">Value</th><th>Location</th><th>Owner</th><th>Issued</th></tr></thead>
+    <thead><tr><th>Item</th><th>Side</th><th class="r">My price</th><th class="r">Best rival</th><th>Status</th><th class="r" title="Closest valid price that beats the best rival (EVE allows at most 4 significant digits)">Reprice to</th><th class="r">Remaining</th><th class="r">Value</th><th>Location</th><th>Owner</th><th>Issued</th></tr></thead>
     <tbody>
     {% for o in orders %}
       <tr class="{{ 'row-bad' if o.undercut }}">
-        <td><img class="icon" src="https://images.evetech.net/types/{{ o.type_id }}/icon?size=32" alt="" loading="lazy"> {{ o.type_name }}</td>
+        <td><img class="icon" src="https://images.evetech.net/types/{{ o.type_id }}/icon?size=32" alt="" loading="lazy"> {{ o.type_name }} {{ ui.eve(o.type_id) }}</td>
         <td>{{ 'Buy' if o.is_buy else 'Sell' }}</td>
         <td class="r" data-v="{{ o.price }}">{{ o.price|isk }}</td>
         <td class="r" data-v="{{ o.competitor_price or 0 }}">{{ o.competitor_price|isk }}</td>
         <td>{% if o.undercut %}<span class="tag bad">{{ 'outbid' if o.is_buy else 'undercut' }}</span>{% elif o.checked_at %}<span class="tag good">best</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+        <td class="r nowrap" data-v="{{ o.reprice or 0 }}">{% if o.reprice %}<b>{{ o.reprice|num(2) }}</b> {{ ui.copy('%.2f'|format(o.reprice), 'Copy') }}{% endif %}</td>
         <td class="r" data-v="{{ o.volume_remain }}">{{ o.volume_remain|num }} / {{ o.volume_total|num }}</td>
         <td class="r" data-v="{{ o.price * o.volume_remain }}">{{ (o.price * o.volume_remain)|isk }}</td>
-        <td class="muted">{{ location_name(o.location_id) }}</td>
+        <td class="muted">{{ location_name(o.location_id) }} {{ ui.dest(o.location_id) }}</td>
         <td class="muted">{{ o.char_name }}</td>
         <td class="muted" data-v="{{ o.issued }}">{{ o.issued|ago }}</td>
       </tr>
     {% else %}
-      <tr><td colspan="10" class="muted">No open orders.</td></tr>
+      <tr><td colspan="11" class="muted">No open orders.</td></tr>
     {% endfor %}
     </tbody>
   </table>

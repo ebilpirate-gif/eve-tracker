@@ -26,10 +26,13 @@ STEPS = {
     "industry": (600, "esi-industry.read_corporation_jobs.v1", {"Director", "Factory_Manager"}),
     "assets": (3600, "esi-assets.read_corporation_assets.v1", {"Director"}),
     "blueprints": (3600, "esi-corporations.read_blueprints.v1", {"Director"}),
+    "contracts": (900, "esi-contracts.read_corporation_contracts.v1", None),  # any member
+    "structures": (900, "esi-corporations.read_structures.v1", {"Director", "Station_Manager"}),
 }
 LABELS = {
     "divisions": "Division names", "wallets": "Wallets", "transactions": "Transactions", "journal": "Journal",
     "orders": "Market orders", "industry": "Industry jobs", "assets": "Assets", "blueprints": "Blueprints",
+    "contracts": "Contracts", "structures": "Structures",
 }
 DIVISIONS = range(1, 8)
 
@@ -56,7 +59,7 @@ def pick_character(corp: dict, step: str):
     if not with_scope:
         raise NoAccess("log in again with a character to grant the corporation permissions")
     for m in with_scope:
-        if m["character_id"] == corp["ceo_id"] or _roles(m) & needed:
+        if needed is None or m["character_id"] == corp["ceo_id"] or _roles(m) & needed:
             return m
     # Roles unknown (roles permission missing or not synced yet): just try.
     unknown = [m for m in with_scope if m["roles"] is None]
@@ -92,7 +95,9 @@ async def sync_corporation(esi, corp_id: int, force: bool = False) -> dict:
             results[step] = "error: " + err  # temporary; access status left as it was
         except ESIError as e:
             if e.status in (401, 403):
-                access[step] = "needs the in-game role " + " or ".join(sorted(STEPS[step][2])).replace("_", " ")
+                needed = STEPS[step][2]
+                access[step] = ("needs the in-game role " + " or ".join(sorted(needed)).replace("_", " ")
+                                if needed else "EVE refused access")
             else:
                 err = str(e)
                 access[step] = "error"
@@ -264,4 +269,62 @@ def corporations() -> list[dict]:
         c["members"] = [m["name"] for m in db.q(
             "SELECT name FROM characters WHERE corporation_id = ? ORDER BY name", (c["corporation_id"],))]
         out.append(c)
+    return out
+
+
+async def sync_contracts(esi, corp_id, token, corp):
+    from . import contracts
+    return await contracts.sync_for_corporation(esi, corp_id, token)
+
+
+async def sync_structures(esi, corp_id, token, corp):
+    data = await esi.get_pages(f"/corporations/{corp_id}/structures/", token=token)
+    now = time.time()
+    with db.tx() as c:
+        c.execute("DELETE FROM corp_structures WHERE corporation_id = ?", (corp_id,))
+        for st in data:
+            services = [{"name": sv.get("name"), "state": sv.get("state")} for sv in st.get("services") or []]
+            c.execute("INSERT OR REPLACE INTO corp_structures VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                      (st["structure_id"], corp_id, st.get("name"), st.get("type_id"), st.get("system_id"),
+                       st.get("state"), st.get("state_timer_end"), st.get("fuel_expires"),
+                       st.get("reinforce_hour"), json.dumps(services), now))
+            if st.get("name"):  # also gives asset locations in our own structures a proper name
+                c.execute("INSERT OR REPLACE INTO structures VALUES (?, ?, ?, ?, ?, 1)",
+                          (st["structure_id"], st["name"], st.get("system_id"), st.get("type_id"), now))
+    return f"{len(data)} structures"
+
+
+# ---------- structure status ----------
+
+DANGER_STATES = {"armor_reinforce", "hull_reinforce", "armor_vulnerable", "hull_vulnerable", "anchor_vulnerable",
+                 "deploy_vulnerable", "unanchored"}
+STATE_LABELS = {
+    "shield_vulnerable": "Online", "armor_reinforce": "Armor reinforced", "armor_vulnerable": "Armor vulnerable",
+    "hull_reinforce": "Hull reinforced", "hull_vulnerable": "Hull vulnerable", "anchoring": "Anchoring",
+    "onlining_vulnerable": "Onlining", "online_deprecated": "Online", "fitting_invulnerable": "Fitting",
+    "anchor_vulnerable": "Anchor vulnerable", "deploy_vulnerable": "Deploy vulnerable",
+    "unanchored": "Unanchored", "unknown": "Unknown",
+}
+
+
+def structures(fuel_warn_days: float = 7) -> list[dict]:
+    out = []
+    now = time.time()
+    for r in db.q("""SELECT s.*, o.name AS corp_name FROM corp_structures s
+                     JOIN corporations c ON c.corporation_id = s.corporation_id AND c.enabled = 1
+                     LEFT JOIN owners o ON o.owner_id = s.corporation_id
+                     ORDER BY s.fuel_expires IS NULL, s.fuel_expires"""):
+        d = dict(r)
+        d["services"] = json.loads(d["services"] or "[]")
+        d["state_label"] = STATE_LABELS.get(d["state"], (d["state"] or "").replace("_", " ").capitalize())
+        d["danger"] = d["state"] in DANGER_STATES
+        if d["fuel_expires"]:
+            from datetime import datetime
+            exp = datetime.fromisoformat(d["fuel_expires"].replace("Z", "+00:00")).timestamp()
+            d["fuel_days"] = max(0.0, (exp - now) / 86400)
+        else:
+            d["fuel_days"] = None  # no fuel: low-power, or no services needing fuel
+        d["low_power"] = d["fuel_days"] is None and bool(d["services"])  # services but no fuel timer
+        d["fuel_low"] = d["fuel_days"] is not None and d["fuel_days"] < fuel_warn_days
+        out.append(d)
     return out

@@ -27,6 +27,7 @@ class Worker:
             "corporations": (300, self.job_corporations),
             "undercut": (600, self.job_undercut),
             "networth": (3600, self.job_networth),
+            "maintenance": (86400, self.job_maintenance),
         }
         for key in db.get_setting("hubs"):
             if key in market.HUBS:
@@ -117,6 +118,15 @@ class Worker:
             types = market.history_candidates().get(region_id, [])
             n = await market.update_history(self.esi, region_id, types)
         return f"{msg}; volume history refreshed for {n} types"
+
+    async def job_maintenance(self):
+        """Keep the database (and SD card) tidy."""
+        day_ago = time.time() - 86400
+        cache = db.ex("DELETE FROM esi_cache WHERE expires < ?", (day_ago,)).rowcount
+        old_history = db.ex("DELETE FROM market_history WHERE fetched_at < ?", (time.time() - 14 * 86400,)).rowcount
+        db.ex("PRAGMA wal_checkpoint(TRUNCATE)")
+        db.ex("PRAGMA optimize")
+        return f"removed {cache} stale cache entries, {old_history} old volume records"
 
     async def job_networth(self):
         return sync.snapshot_networth()

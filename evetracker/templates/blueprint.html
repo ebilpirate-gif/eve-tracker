@@ -1,11 +1,12 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
 {% block content %}
 <p><a href="/industry">← Industry</a></p>
 {% if not r %}
 <p class="card">No data for this blueprint.</p>
 {% else %}
 <section class="card">
-  <h1><img class="icon" src="https://images.evetech.net/types/{{ r.product_id }}/icon?size=64" alt=""> {{ r.product_name }}</h1>
+  <h1><img class="icon" src="https://images.evetech.net/types/{{ r.product_id }}/icon?size=64" alt=""> {{ r.product_name }} {{ ui.eve(r.product_id) }}</h1>
   <form class="filters" method="get">
     <label>Runs <input name="runs" type="number" min="1" value="{{ r.runs }}"></label>
     {% if activity == 1 %}
@@ -28,7 +29,7 @@
     <tbody>
     {% for m in r.materials %}
       <tr>
-        <td><img class="icon" src="https://images.evetech.net/types/{{ m.type_id }}/icon?size=32" alt="" loading="lazy"> {{ m.name }}</td>
+        <td><img class="icon" src="https://images.evetech.net/types/{{ m.type_id }}/icon?size=32" alt="" loading="lazy"> {{ m.name }} {{ ui.eve(m.type_id) }}</td>
         <td class="r" data-v="{{ m.qty }}">{{ m.qty|num }}</td>
         <td class="r" data-v="{{ m.price or 0 }}">{{ m.price|isk }}</td>
         <td class="r" data-v="{{ m.cost }}">{{ m.cost|isk }}</td>

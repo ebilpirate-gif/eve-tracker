@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, config, corp, db, industry, market, pnl, sde, sso, sync
+from . import alerts, auth, config, contracts, corp, db, health, industry, market, pnl, pricing, sde, sso, sync
 from .worker import Worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -78,6 +78,7 @@ templates.env.globals["type_name"] = sde.type_name
 templates.env.globals["location_name"] = sde.location_name
 templates.env.globals["HUBS"] = market.HUBS
 templates.env.globals["ACTIVITY_NAMES"] = industry.ACTIVITY_NAMES
+templates.env.globals["entity_name"] = contracts.name
 
 
 def render(request: Request, name: str, **ctx):
@@ -85,6 +86,7 @@ def render(request: Request, name: str, **ctx):
     ctx["sso_configured"] = sso.configured()
     ctx["sde_loaded"] = sde.is_loaded()
     ctx["password_set"] = auth.password_set()
+    ctx["ui_enabled"] = bool(ui_characters())
     return templates.TemplateResponse(request, name, ctx)
 
 
@@ -253,13 +255,12 @@ def dashboard(request: Request):
     totals = {k: sum(c["nw"][k] for c in everyone) for k in ("wallet", "assets", "sell_orders", "buy_escrow", "total")}
     series = db.q("SELECT ts, SUM(wallet + assets + sell_orders + buy_escrow) AS v FROM networth "
                   "WHERE ts > ? GROUP BY ts ORDER BY ts", (time.time() - 90 * 86400,))
-    undercut = db.val("SELECT COUNT(*) FROM orders WHERE undercut = 1", default=0)
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    jobs_ready = db.val("SELECT COUNT(*) FROM industry_jobs WHERE status = 'ready' OR (status = 'active' AND end_date <= ?)",
-                        (now_iso,), 0)
     jobs_active = db.val("SELECT COUNT(*) FROM industry_jobs WHERE status = 'active' AND end_date > ?", (now_iso,), 0)
     return render(request, "dashboard.html", chars=chars, corps=corps, totals=totals, chart=svg_chart(series),
-                  undercut=undercut, jobs_ready=jobs_ready, jobs_active=jobs_active,
+                  alerts=alerts.collect(), jobs_active=jobs_active, queues=alerts.skill_queues(),
+                  structures=corp.structures(db.get_setting("alert_fuel_days") or 7),
+                  queue_hours=db.get_setting("alert_skillqueue_hours") or 24,
                   hub_updated=db.get_kv("hub_updated:" + db.get_setting("valuation_hub")))
 
 
@@ -354,9 +355,10 @@ def trade_page(request: Request, mode: str = "station", hub: str = "jita", src: 
 @app.get("/orders", response_class=HTMLResponse)
 def orders_page(request: Request, days: str = "30", char: str = "0"):
     days, char = max(1, parse_int(days, 30)), parse_int(char)
-    orders = db.q("""SELECT o.*, t.name AS type_name, c.name AS char_name FROM orders o
-                     LEFT JOIN types t ON t.type_id = o.type_id LEFT JOIN owners c ON c.owner_id = o.character_id
-                     ORDER BY o.is_buy, o.undercut DESC, t.name""")
+    orders = [dict(o, reprice=pricing.suggestion(o)) for o in db.q(
+        """SELECT o.*, t.name AS type_name, c.name AS char_name FROM orders o
+           LEFT JOIN types t ON t.type_id = o.type_id LEFT JOIN owners c ON c.owner_id = o.character_id
+           ORDER BY o.is_buy, o.undercut DESC, t.name""")]
     items, totals = pnl.report(days, char or None)
     txs = db.q("""SELECT x.*, t.name AS type_name, c.name AS char_name FROM transactions x
                   LEFT JOIN types t ON t.type_id = x.type_id LEFT JOIN owners c ON c.owner_id = x.character_id
@@ -414,6 +416,7 @@ def settings_page(request: Request, added: int = 0):
                       dict(c, missing_scopes=bool(set(sso.SCOPES) - set((c["scopes"] or "").split())))
                       for c in characters()],
                   corps=corp.corporations(), corp_steps=corp.STEPS, corp_labels=corp.LABELS, jobs=jobs, steps=steps,
+                  ui_chars=ui_characters(),
                   fees=market.fees(), added=added, callback_url=sso.callback_url(), scopes=sso.SCOPES,
                   client_id=sso.client_id(), has_secret=bool(sso.client_secret()), sso_from_env=sso.from_env(),
                   password_from_env=auth.from_env(), suggested_callback=suggested_callback(request),
@@ -431,7 +434,9 @@ def save_settings(request: Request, sales_tax_pct: str = Form(""), broker_fee_pc
                   hubs: list[str] = Form([]), hub_refresh_minutes: str = Form("30"),
                   industry_hub: str = Form("jita"), industry_system: str = Form("Jita"),
                   industry_facility_tax_pct: str = Form("0.25"), industry_structure_me_bonus_pct: str = Form("0"),
-                  industry_default_me: str = Form("10"), industry_material_side: str = Form("sell")):
+                  industry_default_me: str = Form("10"), industry_material_side: str = Form("sell"),
+                  alert_fuel_days: str = Form("7"), alert_skillqueue_hours: str = Form("24"),
+                  ui_character_id: str = Form("")):
     hub_refresh_minutes = parse_int(hub_refresh_minutes, 30)
     industry_facility_tax_pct = parse_num(industry_facility_tax_pct, 0.25)
     industry_structure_me_bonus_pct = parse_num(industry_structure_me_bonus_pct, 0)
@@ -449,6 +454,9 @@ def save_settings(request: Request, sales_tax_pct: str = Form(""), broker_fee_pc
         "industry_facility_tax_pct": industry_facility_tax_pct,
         "industry_structure_me_bonus_pct": industry_structure_me_bonus_pct,
         "industry_default_me": max(0, min(10, industry_default_me)), "industry_material_side": industry_material_side,
+        "alert_fuel_days": max(0.0, parse_num(alert_fuel_days, 7)),
+        "alert_skillqueue_hours": max(0.0, parse_num(alert_skillqueue_hours, 24)),
+        "ui_character_id": parse_int(ui_character_id) or None,
     }
     for k, v in values.items():
         db.set_setting(k, v)
@@ -543,3 +551,73 @@ def change_password(request: Request, current: str = Form(...), password: str = 
 def toggle_corporation(corporation_id: int):
     db.ex("UPDATE corporations SET enabled = 1 - enabled WHERE corporation_id = ?", (corporation_id,))
     return RedirectResponse("/settings", status_code=303)
+
+
+# ---------- "Open in EVE" (in-game UI) ----------
+
+UI_OPEN = "esi-ui.open_window.v1"
+UI_WAYPOINT = "esi-ui.write_waypoint.v1"
+
+
+def ui_characters() -> list[dict]:
+    return [dict(r) for r in db.q("SELECT character_id, name, scopes FROM characters WHERE needs_reauth = 0 "
+                                  "ORDER BY name") if UI_OPEN in (r["scopes"] or "").split()]
+
+
+def ui_character(scope: str):
+    able = [c for c in ui_characters() if scope in (c["scopes"] or "").split()]
+    chosen = db.get_setting("ui_character_id")
+    for c in able:
+        if c["character_id"] == chosen:
+            return c
+    return able[0] if able else None
+
+
+async def _ui_call(request: Request, scope: str, path: str, params: dict, done: str):
+    char = ui_character(scope)
+    if not char:
+        return JSONResponse({"ok": False, "message": "No character has the in-game window permission yet: "
+                                                     "log in again from Settings."}, status_code=400)
+    try:
+        token = await sso.get_access_token(char["character_id"])
+        await request.app.state.worker.esi.request("POST", path, params=params, token=token)
+    except (sso.NeedsReauth, sso.SSOUnavailable) as e:
+        return JSONResponse({"ok": False, "message": str(e)}, status_code=502)
+    except Exception as e:  # ESIError and network trouble
+        return JSONResponse({"ok": False, "message": f"EVE refused: {e}"}, status_code=502)
+    return {"ok": True, "message": f"{done} in {char['name']}'s EVE client (they must be logged in to the game)."}
+
+
+@app.post("/ui/market/{type_id}")
+async def ui_market(request: Request, type_id: int):
+    return await _ui_call(request, UI_OPEN, "/ui/openwindow/marketdetails/", {"type_id": type_id},
+                          f"Opened the {sde.type_name(type_id)} market")
+
+
+@app.post("/ui/waypoint/{destination_id}")
+async def ui_waypoint(request: Request, destination_id: int):
+    return await _ui_call(request, UI_WAYPOINT, "/ui/autopilot/waypoint/",
+                          {"destination_id": destination_id, "add_to_beginning": "false",
+                           "clear_other_waypoints": "true"},
+                          f"Destination set to {sde.location_name(destination_id)}")
+
+
+# ---------- contracts & system pages ----------
+
+@app.get("/contracts", response_class=HTMLResponse)
+def contracts_page(request: Request, view: str = "open", char: str = "0"):
+    view = "finished" if view == "finished" else "open"
+    owner = parse_int(char)
+    rows = contracts.listing(view, owner, market.price_map())
+    return render(request, "contracts.html", rows=rows, view=view, chars=owners(), char=owner,
+                  has_scope=any("esi-contracts.read_character_contracts.v1" in (c["scopes"] or "").split()
+                                for c in characters()))
+
+
+@app.get("/system", response_class=HTMLResponse)
+def system_page(request: Request):
+    jobs = db.q("SELECT * FROM job_log ORDER BY job")
+    counts = {t: db.val(f"SELECT COUNT(*) FROM {t}", default=0) for t in
+              ("assets", "orders", "transactions", "journal", "contracts", "hub_prices", "market_history", "esi_cache")}
+    return render(request, "system.html", nav="settings", h=health.snapshot(), jobs=jobs, counts=counts,
+                  running=request.app.state.worker.running)

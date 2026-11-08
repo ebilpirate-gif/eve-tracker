@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
 {% block content %}
 <form class="filters" method="get">
   <label>Owner
@@ -18,13 +19,13 @@
 
 {% for loc in locations %}
 <details class="card loc" {{ 'open' if loop.index <= 3 or q }}>
-  <summary><span>{{ loc.name }}</span><span class="muted">{{ loc.count }} stacks</span><b>{{ loc.value|isk }}</b></summary>
+  <summary><span>{{ loc.name }} {{ ui.dest(loc.id) }}</span><span class="muted">{{ loc.count }} stacks</span><b>{{ loc.value|isk }}</b></summary>
   <table class="sortable">
     <thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Value</th><th>Where</th><th>Owner</th></tr></thead>
     <tbody>
     {% for i in loc["items"][:500] %}
       <tr>
-        <td><img class="icon" src="https://images.evetech.net/types/{{ i.type_id }}/icon?size=32" alt="" loading="lazy"> {{ i.name }}
+        <td><img class="icon" src="https://images.evetech.net/types/{{ i.type_id }}/icon?size=32" alt="" loading="lazy"> {{ i.name }} {{ ui.eve(i.type_id) }}
           {% if i.label %}<span class="tag">“{{ i.label }}”</span>{% endif %}{% if i.bpc %}<span class="tag">BPC</span>{% endif %}</td>
         <td class="r" data-v="{{ i.qty }}">{{ i.qty|num }}</td>
         <td class="r" data-v="{{ i.unit }}">{{ i.unit|isk }}</td>

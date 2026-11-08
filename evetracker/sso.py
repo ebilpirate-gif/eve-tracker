@@ -29,6 +29,13 @@ SCOPES = [
     "esi-markets.read_corporation_orders.v1",
     "esi-industry.read_corporation_jobs.v1",
     "esi-corporations.read_blueprints.v1",
+    # contracts, skill queue, corp structures, and "Open in EVE" buttons
+    "esi-contracts.read_character_contracts.v1",
+    "esi-contracts.read_corporation_contracts.v1",
+    "esi-skills.read_skillqueue.v1",
+    "esi-corporations.read_structures.v1",
+    "esi-ui.open_window.v1",
+    "esi-ui.write_waypoint.v1",
 ]
 
 

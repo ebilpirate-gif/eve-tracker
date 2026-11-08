@@ -112,6 +112,40 @@ FAKE = {
     f"/corporations/{CORP}/blueprints/": [
         {"item_id": 950, "type_id": 691, "location_id": 900, "location_flag": "CorpSAG1",
          "material_efficiency": 8, "time_efficiency": 16, "runs": -1, "quantity": -1}],
+    f"/characters/{CID}/skillqueue/": [
+        {"queue_position": 0, "skill_id": 3446, "finished_level": 5, "start_date": "2026-11-01T00:00:00Z",
+         "finish_date": "2099-01-01T00:00:00Z"}],
+    f"/characters/{CID}/contracts/": [
+        {"contract_id": 500, "type": "item_exchange", "status": "outstanding", "title": "Trit for sale",
+         "issuer_id": CID, "issuer_corporation_id": CORP, "assignee_id": 0, "acceptor_id": 0,
+         "for_corporation": False, "availability": "public", "price": 50000.0, "volume": 10.0,
+         "start_location_id": 60003760, "end_location_id": 60003760,
+         "date_issued": "2026-11-01T00:00:00Z", "date_expired": "2099-01-01T00:00:00Z"},
+        {"contract_id": 501, "type": "courier", "status": "in_progress", "title": "Haul to Amarr",
+         "issuer_id": CID, "issuer_corporation_id": CORP, "assignee_id": 0, "acceptor_id": 92000002,
+         "for_corporation": True, "availability": "public", "reward": 5e6, "collateral": 1e8, "volume": 3000.0,
+         "days_to_complete": 3, "start_location_id": 60003760, "end_location_id": 60008494,
+         "date_issued": "2026-11-01T00:00:00Z", "date_expired": "2099-01-01T00:00:00Z",
+         "date_accepted": "2026-11-02T00:00:00Z"}],
+    f"/characters/{CID}/contracts/500/items/": [
+        {"record_id": 1, "type_id": 34, "quantity": 10000, "is_included": True, "is_singleton": False}],
+    f"/characters/{CID}/contracts/501/items/": [],
+    f"/corporations/{CORP}/contracts/": [
+        {"contract_id": 501, "type": "courier", "status": "in_progress", "title": "Haul to Amarr",
+         "issuer_id": CID, "issuer_corporation_id": CORP, "assignee_id": 0, "acceptor_id": 92000002,
+         "for_corporation": True, "availability": "public", "reward": 5e6, "collateral": 1e8, "volume": 3000.0,
+         "days_to_complete": 3, "start_location_id": 60003760, "end_location_id": 60008494,
+         "date_issued": "2026-11-01T00:00:00Z", "date_expired": "2099-01-01T00:00:00Z",
+         "date_accepted": "2026-11-02T00:00:00Z"}],
+    f"/corporations/{CORP}/contracts/501/items/": [
+        {"record_id": 1, "type_id": 587, "quantity": 2, "is_included": True, "is_singleton": False}],
+    f"/corporations/{CORP}/structures/": [
+        {"structure_id": 1035000000001, "corporation_id": CORP, "name": "PHLD Fort", "type_id": 35832,
+         "system_id": 30000142, "state": "shield_vulnerable", "fuel_expires": "2026-11-10T00:00:00Z",
+         "services": [{"name": "Manufacturing (Standard)", "state": "online"}]},
+        {"structure_id": 1035000000002, "corporation_id": CORP, "name": "PHLD Refinery", "type_id": 35835,
+         "system_id": 30000142, "state": "armor_reinforce", "state_timer_end": "2099-01-01T00:00:00Z",
+         "fuel_expires": "2099-01-01T00:00:00Z", "services": []}],
     f"/characters/{CID}/wallet/": 1_234_567.89,
     f"/characters/{CID}/orders/": [
         {"order_id": 1, "type_id": 34, "region_id": 10000002, "location_id": 60003760, "is_buy_order": False,
@@ -161,12 +195,19 @@ FAKE = {
 
 
 ROLE_LOCKED: set = set()
+UI_CALLS: list = []
 
 
 def fake_handler(request: httpx.Request):
     path = request.url.path
     if path.startswith(f"/corporations/{CORP}/wallets/") and path not in FAKE:
         return httpx.Response(200, json=[], headers={"x-pages": "1"})  # empty wallet divisions
+    if path == "/universe/names/":
+        ids = json.loads(request.content)
+        return httpx.Response(200, json=[{"id": i, "name": f"Pilot {i}", "category": "character"} for i in ids])
+    if path.startswith("/ui/"):
+        UI_CALLS.append((path, dict(request.url.params), request.headers.get("authorization")))
+        return httpx.Response(204)
     if path in (f"/characters/{CID}/assets/names/", f"/corporations/{CORP}/assets/names/"):
         ids = json.loads(request.content)
         return httpx.Response(200, json=[{"item_id": i, "name": "My Rifter"} for i in ids])
@@ -535,3 +576,122 @@ def test_login_server_down_is_temporary(fake_char, monkeypatch):
     msg = asyncio.run(Worker.job_characters(w))
     assert "skipped" in msg
     assert db.val("SELECT needs_reauth FROM characters WHERE character_id = ?", (CID,)) == 0
+
+
+# ---------- repricing, contracts, skills, structures, health, Open in EVE ----------
+
+def test_reprice_respects_four_significant_digits():
+    from evetracker import pricing
+    cases = {4.90: (4.89, 4.91), 1234000: (1233000, 1235000), 1000: (999.9, 1001), 999.9: (999.8, 1000),
+             2.11: (2.10, 2.12), 187600000: (187500000, 187700000), 0.05: (0.04, 0.06)}
+    for competitor, (sell, buy) in cases.items():
+        assert pricing.beat_sell(competitor) == pytest.approx(sell), competitor
+        assert pricing.beat_buy(competitor) == pytest.approx(buy), competitor
+        assert pricing.is_valid(pricing.beat_sell(competitor)) and pricing.is_valid(pricing.beat_buy(competitor))
+        assert pricing.beat_sell(competitor) < competitor < pricing.beat_buy(competitor)
+    assert not pricing.is_valid(1234500) and pricing.is_valid(1235000)
+    assert pricing.suggestion({"undercut": 1, "competitor_price": 4.9, "is_buy": 0}) == pytest.approx(4.89)
+    assert pricing.suggestion({"undercut": 0, "competitor_price": 4.9, "is_buy": 0}) is None
+
+
+def _sync_all_fake(fuel_in_days=2.0):
+    from evetracker import corp
+    soon = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + fuel_in_days * 86400))
+    FAKE[f"/corporations/{CORP}/structures/"][0]["fuel_expires"] = soon
+    for t in ("orders", "assets", "industry_jobs", "blueprints", "transactions", "journal", "wallet", "contracts",
+              "contract_items", "corporations", "corp_wallets", "sync_state", "esi_cache", "corp_structures",
+              "skillqueue", "names"):
+        db.ex(f"DELETE FROM {t}")
+    esi = _fake_esi()
+
+    async def go():
+        a = await sync.sync_character(esi, CID, force=True)
+        b = await corp.sync_corporation(esi, CORP, force=True)
+        return a, b
+    return asyncio.run(go())
+
+
+def test_contracts_skills_structures(fake_char):
+    from evetracker import alerts, contracts, corp
+    char_res, corp_res = _sync_all_fake(fuel_in_days=2.0)
+    assert all(not str(v).startswith(("error", "skipped")) for v in {**char_res, **corp_res}.values()), \
+        (char_res, corp_res)
+    # the courier contract placed for the corp is the corp's (seen by both, stored once)
+    assert db.val("SELECT character_id FROM contracts WHERE contract_id = 501") == CORP
+    assert db.val("SELECT character_id FROM contracts WHERE contract_id = 500") == CID
+    # a later character sync must not steal it back
+    asyncio.run(sync.sync_character(_fake_esi(), CID, force=True))
+    assert db.val("SELECT character_id FROM contracts WHERE contract_id = 501") == CORP
+    rows = contracts.listing("open", prices={34: 4.0, 587: 500000})
+    by_id = {r["contract_id"]: r for r in rows}
+    assert by_id[500]["item_value"] == 40000 and by_id[500]["mine"]
+    assert by_id[501]["item_value"] == 1000000 and by_id[501]["type_label"] == "Courier"
+    assert contracts.name(92000002) == "Pilot 92000002"  # acceptor resolved via /universe/names/
+    assert contracts.name(CORP) == "[PHLD] Pilot Holdings"
+    # skill queue
+    q = {x["character_id"]: x for x in alerts.skill_queues()}[CID]
+    assert q["count"] == 1 and q["current"]["level"] == 5 and q["hours_left"] > 1000
+    # structures: one low on fuel, one reinforced
+    st = {s["name"]: s for s in corp.structures(7)}
+    assert st["PHLD Fort"]["fuel_low"] and 1.9 < st["PHLD Fort"]["fuel_days"] < 2.1
+    assert st["PHLD Refinery"]["danger"] and st["PHLD Refinery"]["state_label"] == "Armor reinforced"
+    assert sde_name(1035000000001) == "PHLD Fort"  # structure names also feed asset locations
+    texts = [a["text"] for a in alerts.collect()]
+    assert any("PHLD Fort" in t and "days of fuel" in t for t in texts), texts
+    assert any("PHLD Refinery: Armor reinforced" in t for t in texts), texts
+    # an empty skill queue raises an alert
+    db.ex("DELETE FROM skillqueue")
+    assert any("skill queue is empty" in a["text"] for a in alerts.collect())
+
+
+def sde_name(location_id):
+    from evetracker import sde
+    return sde.location_name(location_id)
+
+
+def test_new_pages_and_open_in_eve(fake_char):
+    _sync_all_fake()
+    db.ex("INSERT OR REPLACE INTO orders (order_id, character_id, type_id, region_id, location_id, is_buy, price, "
+          "volume_total, volume_remain, issued, duration, competitor_price, undercut, checked_at) "
+          "VALUES (77, ?, 34, 10000002, 60003760, 0, 5.0, 10, 10, '2026-11-01T00:00:00Z', 90, 4.9, 1, 1)", (CID,))
+    with logged_in_client() as client:
+        client.app.state.worker.esi = _fake_esi()
+        page = client.get("/").text
+        assert "PHLD Fort" in page and "Skill queues" in page and "PHLD Refinery: Armor reinforced" in page
+        page = client.get("/orders").text
+        assert 'data-copy-text="4.89"' in page          # repricing helper
+        assert 'data-market="34"' in page                # Open in EVE button
+        page = client.get("/contracts").text
+        assert "Trit for sale" in page and "Courier" not in client.get("/contracts?view=finished").text
+        assert "Haul to Amarr" in client.get(f"/contracts?char={CORP}").text
+        assert "Haul to Amarr" not in client.get(f"/contracts?char={CID}").text
+        page = client.get("/system").text
+        assert "SD card free" in page and "Background jobs" in page
+        assert "Alerts &amp; EVE client" in client.get("/settings").text
+        UI_CALLS.clear()
+        r = client.post("/ui/market/34")
+        assert r.status_code == 200 and r.json()["ok"] and "Tritanium" in r.json()["message"]
+        r = client.post("/ui/waypoint/60008494")
+        assert r.json()["ok"]
+        assert UI_CALLS[0][0] == "/ui/openwindow/marketdetails/" and UI_CALLS[0][1]["type_id"] == "34"
+        assert UI_CALLS[1][1]["destination_id"] == "60008494" and UI_CALLS[1][1]["clear_other_waypoints"] == "true"
+        # without the permission, a friendly message instead of an error page
+        db.ex("UPDATE characters SET scopes = 'esi-assets.read_assets.v1' WHERE character_id = ?", (CID,))
+        r = client.post("/ui/market/34")
+        assert r.status_code == 400 and "log in again" in r.json()["message"]
+        assert 'data-market=' not in client.get("/orders").text  # buttons hidden when unusable
+
+
+def test_health_and_maintenance(fake_char):
+    from evetracker import health
+    from evetracker.worker import Worker
+    h = health.snapshot()
+    assert h["disk_total_gb"] > 0 and h["db_mb"] >= 0 and isinstance(h["warnings"], list)
+    fake = dict(h, disk_free_gb=0.4, disk_free_pct=3, temp_c=82, mem_available_mb=50)
+    levels = dict((t.split()[0], lvl) for lvl, t in health.warnings(fake))
+    assert levels == {"SD": "bad", "Pi": "bad", "Low": "warn"}
+    db.ex("INSERT OR REPLACE INTO esi_cache VALUES ('stale', NULL, ?, '[]')", (time.time() - 3 * 86400,))
+    db.ex("INSERT OR REPLACE INTO esi_cache VALUES ('fresh', NULL, ?, '[]')", (time.time() + 60,))
+    msg = asyncio.run(Worker.job_maintenance(Worker.__new__(Worker)))
+    assert "removed 1 stale cache" in msg
+    assert db.val("SELECT COUNT(*) FROM esi_cache WHERE key = 'fresh'") == 1
