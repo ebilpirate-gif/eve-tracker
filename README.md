@@ -7,6 +7,22 @@ A self-hosted EVE Online asset tracker and trading tool, built to run on a Raspb
 - **Orders & wallet:** your open orders with undercut/outbid detection, recent transactions, and FIFO profit & loss matched across all your characters (buy on one alt, sell on another).
 - **Industry:** profit and profit/hour for every manufacturing blueprint and reaction, using your owned blueprints' ME/TE, live system cost indices, the SCC surcharge, facility tax and structure bonuses. Shows your running jobs and which ones are ready.
 
+![Dashboard](screenshots/1-dashboard.png)
+
+<details><summary>More screenshots</summary>
+
+![Assets](screenshots/2-assets.png)
+![Station trading](screenshots/3-station-trading.png)
+![Hauling](screenshots/4-hauling.png)
+![Orders & wallet](screenshots/5-orders-wallet.png)
+![Industry](screenshots/6-industry.png)
+![Blueprint](screenshots/7-blueprint.png)
+![Settings](screenshots/8-settings.png)
+
+</details>
+
+_Screenshots use live market data and a demo character._
+
 It's a single Python process (FastAPI + SQLite) with a built-in background scheduler, so no Redis, Postgres or Docker is needed.
 
 ## Requirements
@@ -34,7 +50,7 @@ It's a single Python process (FastAPI + SQLite) with a built-in background sched
 ## 2. Install on the Pi
 
 ```bash
-git clone <this repo> eve-tracker
+git clone https://github.com/ebilpirate-gif/eve-tracker.git
 cd eve-tracker
 ./deploy/install.sh        # creates .env on the first run
 nano .env                  # fill in EVE_CLIENT_ID, EVE_CLIENT_SECRET, EVE_CALLBACK_URL, APP_PASSWORD
