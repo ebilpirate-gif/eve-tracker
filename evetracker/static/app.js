@@ -29,3 +29,8 @@ document.addEventListener("submit", (e) => {
   const msg = e.target.dataset.confirm;
   if (msg && !confirm(msg)) e.preventDefault();
 });
+
+// Hide item icons that fail to load (e.g. image server unreachable) instead of showing broken images.
+document.addEventListener("error", (e) => {
+  if (e.target.tagName === "IMG") e.target.style.visibility = "hidden";
+}, true);

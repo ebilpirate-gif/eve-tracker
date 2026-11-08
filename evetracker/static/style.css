@@ -24,6 +24,8 @@ h2 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap:
 .stat span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
 .stat b { font-size: 20px; font-variant-numeric: tabular-nums; }
 .stat.big b { color: var(--accent); font-size: 24px; }
+.stat b.good { color: var(--good); }
+.stat b.bad { color: var(--bad); }
 .alerts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .alert { padding: 6px 12px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); color: var(--text); }
 .alert.bad { border-color: var(--bad); color: var(--bad); }
