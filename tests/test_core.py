@@ -77,8 +77,41 @@ def test_hub_aggregator():
 # ---------- character sync against a fake ESI ----------
 
 CID = 90000001
+CORP = 98000001
 
 FAKE = {
+    f"/characters/{CID}/": {"name": "Test Pilot", "corporation_id": CORP},
+    f"/characters/{CID}/roles/": {"roles": ["Director"]},
+    f"/corporations/{CORP}/": {"name": "Pilot Holdings", "ticker": "PHLD", "ceo_id": CID, "member_count": 1},
+    f"/corporations/{CORP}/divisions/": {
+        "hangar": [{"division": 1, "name": "Main"}, {"division": 2, "name": "Minerals"}],
+        "wallet": [{"division": 1, "name": "Master Wallet"}, {"division": 3, "name": "Trading"}]},
+    f"/corporations/{CORP}/wallets/": [{"division": d, "balance": 1000.0 * d} for d in range(1, 8)],
+    f"/corporations/{CORP}/wallets/1/transactions/": [
+        {"transaction_id": 11, "date": "2026-11-03T00:00:00Z", "type_id": 34, "quantity": 50, "unit_price": 7.0,
+         "is_buy": False, "location_id": 60003760, "client_id": 2, "journal_ref_id": 9}],
+    f"/corporations/{CORP}/wallets/1/journal/": [
+        {"id": 1, "date": "2026-11-03T00:00:00Z", "ref_type": "brokers_fee", "amount": -5.0, "balance": 1.0,
+         "description": "corp fee"}],
+    f"/corporations/{CORP}/orders/": [
+        {"order_id": 3, "type_id": 35, "region_id": 10000002, "location_id": 60003760, "is_buy_order": False,
+         "price": 20.0, "volume_total": 10, "volume_remain": 10, "issued": "2026-11-01T00:00:00Z", "duration": 90,
+         "range": "station", "wallet_division": 3, "issued_by": CID}],
+    f"/corporations/{CORP}/industry/jobs/": [
+        {"job_id": 70, "activity_id": 1, "blueprint_type_id": 691, "product_type_id": 587, "runs": 2,
+         "status": "active", "start_date": "2026-11-01T00:00:00Z", "end_date": "2099-01-01T00:00:00Z",
+         "facility_id": 60003760, "location_id": 60003760, "cost": 10.0, "installer_id": CID}],
+    f"/corporations/{CORP}/assets/": [
+        {"item_id": 900, "type_id": 27, "location_id": 60003760, "location_flag": "OfficeFolder",
+         "location_type": "station", "quantity": 1, "is_singleton": True},
+        {"item_id": 901, "type_id": 34, "location_id": 900, "location_flag": "CorpSAG2",
+         "location_type": "item", "quantity": 10000, "is_singleton": False},
+        {"item_id": 902, "type_id": 587, "location_id": 60008494, "location_flag": "CorpDeliveries",
+         "location_type": "station", "quantity": 1, "is_singleton": False},
+    ],
+    f"/corporations/{CORP}/blueprints/": [
+        {"item_id": 950, "type_id": 691, "location_id": 900, "location_flag": "CorpSAG1",
+         "material_efficiency": 8, "time_efficiency": 16, "runs": -1, "quantity": -1}],
     f"/characters/{CID}/wallet/": 1_234_567.89,
     f"/characters/{CID}/orders/": [
         {"order_id": 1, "type_id": 34, "region_id": 10000002, "location_id": 60003760, "is_buy_order": False,
@@ -87,6 +120,9 @@ FAKE = {
         {"order_id": 2, "type_id": 35, "region_id": 10000002, "location_id": 60003760, "is_buy_order": True,
          "price": 10.0, "volume_total": 100, "volume_remain": 100, "issued": "2026-11-01T00:00:00Z", "duration": 90,
          "escrow": 1000.0, "range": "station"},
+        {"order_id": 3, "type_id": 35, "region_id": 10000002, "location_id": 60003760, "is_buy_order": False,
+         "price": 20.0, "volume_total": 10, "volume_remain": 10, "issued": "2026-11-01T00:00:00Z", "duration": 90,
+         "range": "station", "is_corporation": True},
     ],
     f"/characters/{CID}/wallet/transactions/": [
         {"transaction_id": 11, "date": "2026-11-01T00:00:00Z", "type_id": 34, "quantity": 100, "unit_price": 4.0,
@@ -124,13 +160,20 @@ FAKE = {
 }
 
 
+ROLE_LOCKED: set = set()
+
+
 def fake_handler(request: httpx.Request):
     path = request.url.path
-    if path == f"/characters/{CID}/assets/names/":
+    if path.startswith(f"/corporations/{CORP}/wallets/") and path not in FAKE:
+        return httpx.Response(200, json=[], headers={"x-pages": "1"})  # empty wallet divisions
+    if path in (f"/characters/{CID}/assets/names/", f"/corporations/{CORP}/assets/names/"):
         ids = json.loads(request.content)
         return httpx.Response(200, json=[{"item_id": i, "name": "My Rifter"} for i in ids])
     if path not in FAKE:
         return httpx.Response(404, json={"error": "not found"})
+    if path in ROLE_LOCKED:
+        return httpx.Response(403, json={"error": "Character does not have required role(s)"})
     if FAKE[path] is None:
         return httpx.Response(403, json={"error": "forbidden"})
     if path.endswith("/orders/") and path.startswith("/markets") and request.url.params.get("type_id") != "34":
@@ -144,7 +187,8 @@ def fake_char():
     db.ex("INSERT INTO characters (character_id, name, refresh_token, access_token, access_expires, scopes) "
           "VALUES (?, ?, 'r', 'a', ?, ?)",
           (CID, "Test Pilot", time.time() + 3600, " ".join(__import__("evetracker.sso").sso.SCOPES)))
-    db.ex("INSERT OR REPLACE INTO types (type_id, name, published) VALUES (34, 'Tritanium', 1), (35, 'Pyerite', 1), (587, 'Rifter', 1)")
+    db.ex("INSERT OR REPLACE INTO types (type_id, name, published) VALUES (34, 'Tritanium', 1), (35, 'Pyerite', 1), "
+          "(587, 'Rifter', 1), (27, 'Office', 1)")
     db.ex("INSERT OR REPLACE INTO prices VALUES (34, 4.0, 4.0), (35, 10.0, 10.0), (587, 500000, 500000)")
     return CID
 
@@ -349,3 +393,145 @@ def test_blank_and_junk_filters_never_error(fake_char):
         assert r.status_code == 303
         assert db.get_setting("broker_fee_pct") == 3.5 and db.get_setting("sales_tax_pct") is None
         assert db.get_setting("hub_refresh_minutes") == 30
+
+
+def _fake_esi():
+    return ESI(httpx.AsyncClient(transport=httpx.MockTransport(fake_handler), base_url="https://esi.evetech.net"))
+
+
+def test_corporation_sync_end_to_end(fake_char):
+    from evetracker import corp
+    for t in ("orders", "assets", "industry_jobs", "blueprints", "transactions", "journal", "wallet",
+              "corporations", "corp_wallets", "sync_state", "esi_cache"):
+        db.ex(f"DELETE FROM {t}")
+    esi = _fake_esi()
+
+    async def go():
+        await sync.sync_character(esi, CID, force=True)
+        return await corp.sync_corporation(esi, CORP, force=True)
+
+    res = asyncio.run(go())
+    assert all(not str(v).startswith(("error", "skipped")) for v in res.values()), res
+    # discovered via the character's affiliation, with roles
+    c = db.q1("SELECT * FROM corporations WHERE corporation_id = ?", (CORP,))
+    assert c["ticker"] == "PHLD" and c["ceo_id"] == CID
+    assert json.loads(c["access"]) == {step: "ok" for step in corp.STEPS}
+    # wallets: 7 divisions summed
+    assert db.val("SELECT balance FROM wallet WHERE character_id = ?", (CORP,)) == 28000.0
+    assert corp.wallet_label(CORP, 3) == "Trading" and corp.wallet_label(CORP, 5) == "Division 5"
+    # the order the CEO placed for the corp is counted once, as the corp's
+    assert db.val("SELECT character_id FROM orders WHERE order_id = 3") == CORP
+    assert db.val("SELECT COUNT(*) FROM orders WHERE order_id = 3") == 1
+    assert db.val("SELECT wallet_division FROM orders WHERE order_id = 3") == 3
+    # assets inside the office resolve to the station and get the hangar's name
+    assert db.val("SELECT root_location_id FROM assets WHERE item_id = 901") == 60003760
+    assert corp.flag_label("CorpSAG2", corp.division_names(CORP)) == "Hangar 2: Minerals"
+    assert db.val("SELECT character_id FROM industry_jobs WHERE job_id = 70") == CORP
+    assert db.val("SELECT material_efficiency FROM blueprints WHERE item_id = 950") == 8
+    # net worth: wallets + 10000 trit @4 + rifter @500k + sell order 10 x 20
+    nw = sync.owner_networth(CORP)
+    assert nw["wallet"] == 28000 and nw["assets"] == pytest.approx(40000 + 500000) and nw["sell_orders"] == 200
+    assert "2 owners" in sync.snapshot_networth()
+    # the corp's sale is matched against the character's purchase (FIFO across owners)
+    items, totals = pnl.report(days=3650)
+    assert sum(i["sold"] for i in items) == 100  # 50 sold by the character + 50 by the corp
+    assert totals["broker_fees"] == pytest.approx(15.0 + 5.0)
+    items, totals = pnl.report(days=3650, character_id=CORP)
+    assert items[0]["sold"] == 50 and totals["broker_fees"] == pytest.approx(5.0)
+
+    # every page shows the corporation
+    with logged_in_client() as client:
+        assert "[PHLD] Pilot Holdings" in client.get("/").text
+        page = client.get(f"/assets?char={CORP}").text
+        assert "Hangar 2: Minerals" in page and "Corp deliveries" in page
+        page = client.get("/orders").text
+        assert "Trading" in page and "[PHLD] Pilot Holdings" in page
+        assert "[PHLD]" in client.get("/industry").text
+        page = client.get("/settings").text
+        assert "Corporations" in page and "pending" not in page
+        # stop tracking hides it from the dashboard
+        client.post(f"/corporations/{CORP}/toggle")
+        assert "Pilot Holdings" not in client.get("/").text
+        client.post(f"/corporations/{CORP}/toggle")
+
+
+def test_corporation_without_roles(fake_char):
+    from evetracker import corp
+    db.ex("DELETE FROM sync_state")
+    db.ex("DELETE FROM corporations")
+    db.ex("DELETE FROM esi_cache")  # earlier tests cached the Director roles
+    esi = _fake_esi()
+    FAKE[f"/characters/{CID}/roles/"] = {"roles": ["Trader"]}
+    FAKE[f"/corporations/{CORP}/"] = {"name": "Big Corp", "ticker": "BIG", "ceo_id": 1}
+    try:
+        async def go():
+            await sync.sync_character(esi, CID, force=True)
+            return await corp.sync_corporation(esi, CORP, force=True)
+        res = asyncio.run(go())
+    finally:
+        FAKE[f"/characters/{CID}/roles/"] = {"roles": ["Director"]}
+        FAKE[f"/corporations/{CORP}/"] = {"name": "Pilot Holdings", "ticker": "PHLD", "ceo_id": CID}
+    access = json.loads(db.val("SELECT access FROM corporations WHERE corporation_id = ?", (CORP,)))
+    assert access["orders"] == "ok"  # Trader may read orders
+    assert "Director" in access["assets"] and "Accountant" in access["wallets"]
+    assert res["assets"].startswith("skipped")
+
+
+def test_migrates_old_database(tmp_path):
+    """A database from before corporation support (single-column keys) upgrades in place."""
+    import sqlite3
+    from evetracker import db as dbmod
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript("""
+        CREATE TABLE characters (character_id INTEGER PRIMARY KEY, name TEXT, corporation_id INTEGER,
+            refresh_token TEXT, access_token TEXT, access_expires REAL, scopes TEXT, added_at REAL,
+            last_sync REAL, sync_error TEXT, needs_reauth INTEGER DEFAULT 0);
+        CREATE TABLE transactions (transaction_id INTEGER PRIMARY KEY, character_id INTEGER, date TEXT,
+            type_id INTEGER, quantity INTEGER, unit_price REAL, is_buy INTEGER, location_id INTEGER,
+            client_id INTEGER, journal_ref_id INTEGER, is_personal INTEGER);
+        CREATE INDEX tx_date ON transactions(date);
+        CREATE TABLE journal (id INTEGER PRIMARY KEY, character_id INTEGER, date TEXT, ref_type TEXT,
+            amount REAL, balance REAL, description TEXT);
+        CREATE TABLE orders (order_id INTEGER PRIMARY KEY, character_id INTEGER, type_id INTEGER,
+            region_id INTEGER, location_id INTEGER, is_buy INTEGER, price REAL, volume_total INTEGER,
+            volume_remain INTEGER, issued TEXT, duration INTEGER, escrow REAL, range TEXT,
+            competitor_price REAL, undercut INTEGER, checked_at REAL);
+        INSERT INTO characters (character_id, name) VALUES (1, 'Old Pilot');
+        INSERT INTO transactions VALUES (5, 1, '2026-01-01', 34, 10, 4.0, 1, 60003760, 2, 3, 1);
+        INSERT INTO journal VALUES (6, 1, '2026-01-01', 'brokers_fee', -1.0, 0, 'x');
+    """)
+    old.commit()
+    old.close()
+    c = sqlite3.connect(path, isolation_level=None)
+    c.row_factory = sqlite3.Row
+    c.executescript(dbmod.SCHEMA)
+    dbmod.migrate(c)
+    c.executescript(dbmod.SCHEMA)
+    assert c.execute("SELECT quantity FROM transactions WHERE transaction_id = 5").fetchone()[0] == 10
+    assert c.execute("SELECT division FROM journal WHERE id = 6").fetchone()[0] == 0
+    # composite keys now allow the same id for a character and a corporation
+    c.execute("INSERT INTO transactions (transaction_id, character_id) VALUES (5, 98000001)")
+    c.execute("INSERT INTO journal (id, character_id, division) VALUES (6, 98000001, 1)")
+    assert "roles" in {r[1] for r in c.execute("PRAGMA table_info(characters)")}
+    assert "wallet_division" in {r[1] for r in c.execute("PRAGMA table_info(orders)")}
+    assert c.execute("SELECT name FROM owners WHERE owner_id = 1").fetchone()[0] == "Old Pilot"
+    assert c.execute("SELECT COUNT(*) FROM sqlite_master WHERE name = 'tx_date'").fetchone()[0] == 1
+
+
+def test_login_server_down_is_temporary(fake_char, monkeypatch):
+    """An unreachable EVE login server must not mark characters as needing to log in again."""
+    from evetracker import sso
+    from evetracker.worker import Worker
+    db.ex("UPDATE characters SET access_expires = 0, needs_reauth = 0 WHERE character_id = ?", (CID,))
+
+    async def down(data):
+        raise sso.SSOUnavailable("EVE login server unreachable: test")
+
+    monkeypatch.setattr(sso, "_token_request", down)
+    w = Worker.__new__(Worker)
+    w.esi = None
+    w.running = set()
+    msg = asyncio.run(Worker.job_characters(w))
+    assert "skipped" in msg
+    assert db.val("SELECT needs_reauth FROM characters WHERE character_id = ?", (CID,)) == 0

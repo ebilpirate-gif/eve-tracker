@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <form class="filters" method="get">
-  <label>Character
+  <label>Owner
     <select name="char"><option value="0">All</option>
-      {% for c in chars %}<option value="{{ c.character_id }}" {{ 'selected' if c.character_id == char }}>{{ c.name }}</option>{% endfor %}
+      {% for c in chars %}<option value="{{ c.owner_id }}" {{ 'selected' if c.owner_id == char }}>{{ c.name }}</option>{% endfor %}
     </select></label>
   <label>Search <input name="q" value="{{ q }}" placeholder="item or ship name"></label>
   <label>Min value <input name="min_value" type="text" inputmode="decimal" class="num" title="Accepts 500k, 1.5m, 2b" value="{{ min_value|int if min_value else '' }}" placeholder="e.g. 10m"></label>

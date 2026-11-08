@@ -28,12 +28,26 @@ CREATE TABLE IF NOT EXISTS systems (system_id INTEGER PRIMARY KEY, name TEXT, re
 CREATE INDEX IF NOT EXISTS systems_name ON systems(name);
 CREATE TABLE IF NOT EXISTS stations (station_id INTEGER PRIMARY KEY, name TEXT, system_id INTEGER, region_id INTEGER);
 
--- ---------- characters & auth ----------
+-- NOTE: in the data tables below, `character_id` is the OWNER id: a character id or, for
+-- corporation data, a corporation id (EVE ids are unique across both). The `owners` view
+-- maps an owner id to a display name.
+
+-- ---------- characters, corporations & auth ----------
 CREATE TABLE IF NOT EXISTS characters (
     character_id INTEGER PRIMARY KEY, name TEXT, corporation_id INTEGER,
     refresh_token TEXT, access_token TEXT, access_expires REAL, scopes TEXT,
-    added_at REAL, last_sync REAL, sync_error TEXT, needs_reauth INTEGER DEFAULT 0
+    added_at REAL, last_sync REAL, sync_error TEXT, needs_reauth INTEGER DEFAULT 0, roles TEXT
 );
+CREATE TABLE IF NOT EXISTS corporations (
+    corporation_id INTEGER PRIMARY KEY, name TEXT, ticker TEXT, ceo_id INTEGER, enabled INTEGER DEFAULT 1,
+    divisions TEXT, access TEXT, last_sync REAL, sync_error TEXT
+);
+CREATE TABLE IF NOT EXISTS corp_wallets (corporation_id INTEGER, division INTEGER, balance REAL,
+    PRIMARY KEY (corporation_id, division));
+CREATE VIEW IF NOT EXISTS owners AS
+    SELECT character_id AS owner_id, name, 0 AS is_corp FROM characters
+    UNION ALL
+    SELECT corporation_id, '[' || COALESCE(ticker, '?') || '] ' || COALESCE(name, corporation_id), 1 FROM corporations;
 CREATE TABLE IF NOT EXISTS sync_state (character_id INTEGER, step TEXT, last_run REAL, error TEXT,
     PRIMARY KEY (character_id, step));
 CREATE TABLE IF NOT EXISTS esi_cache (key TEXT PRIMARY KEY, etag TEXT, expires REAL, body TEXT);
@@ -52,21 +66,23 @@ CREATE INDEX IF NOT EXISTS assets_char ON assets(character_id);
 CREATE INDEX IF NOT EXISTS assets_root ON assets(root_location_id);
 CREATE TABLE IF NOT EXISTS wallet (character_id INTEGER PRIMARY KEY, balance REAL, updated REAL);
 CREATE TABLE IF NOT EXISTS transactions (
-    transaction_id INTEGER PRIMARY KEY, character_id INTEGER, date TEXT, type_id INTEGER,
+    transaction_id INTEGER, character_id INTEGER, date TEXT, type_id INTEGER,
     quantity INTEGER, unit_price REAL, is_buy INTEGER, location_id INTEGER, client_id INTEGER,
-    journal_ref_id INTEGER, is_personal INTEGER
+    journal_ref_id INTEGER, is_personal INTEGER, division INTEGER,
+    PRIMARY KEY (transaction_id, character_id)
 );
 CREATE INDEX IF NOT EXISTS tx_date ON transactions(date);
 CREATE TABLE IF NOT EXISTS journal (
-    id INTEGER PRIMARY KEY, character_id INTEGER, date TEXT, ref_type TEXT, amount REAL,
-    balance REAL, description TEXT
+    id INTEGER, character_id INTEGER, date TEXT, ref_type TEXT, amount REAL,
+    balance REAL, description TEXT, division INTEGER DEFAULT 0,
+    PRIMARY KEY (id, character_id, division)
 );
 CREATE INDEX IF NOT EXISTS journal_date ON journal(date);
 CREATE TABLE IF NOT EXISTS orders (
     order_id INTEGER PRIMARY KEY, character_id INTEGER, type_id INTEGER, region_id INTEGER,
     location_id INTEGER, is_buy INTEGER, price REAL, volume_total INTEGER, volume_remain INTEGER,
     issued TEXT, duration INTEGER, escrow REAL, range TEXT,
-    competitor_price REAL, undercut INTEGER, checked_at REAL
+    competitor_price REAL, undercut INTEGER, checked_at REAL, wallet_division INTEGER
 );
 CREATE TABLE IF NOT EXISTS industry_jobs (
     job_id INTEGER PRIMARY KEY, character_id INTEGER, activity_id INTEGER, blueprint_type_id INTEGER,
@@ -117,8 +133,42 @@ def conn() -> sqlite3.Connection:
         with _init_lock:
             if not _initialized:
                 c.executescript(SCHEMA)
+                migrate(c)
+                c.executescript(SCHEMA)  # recreate any indexes dropped by a table rebuild
                 _initialized = True
     return c
+
+
+def _columns(c, table: str) -> dict:
+    return {r[1]: r for r in c.execute(f"PRAGMA table_info({table})")}
+
+
+def _rebuild(c, table: str, keep_cols) -> None:
+    """Recreate `table` with the current SCHEMA definition, copying `keep_cols` across."""
+    create = SCHEMA[SCHEMA.index(f"CREATE TABLE IF NOT EXISTS {table} ("):]
+    create = create[:create.index(");") + 2]
+    cols = ", ".join(keep_cols)
+    c.execute("BEGIN")
+    c.execute(f"ALTER TABLE {table} RENAME TO {table}_old")
+    c.execute(create)
+    c.execute(f"INSERT OR IGNORE INTO {table} ({cols}) SELECT {cols} FROM {table}_old")
+    c.execute(f"DROP TABLE {table}_old")
+    c.execute("COMMIT")
+
+
+def migrate(c) -> None:
+    """Upgrade databases created by older versions in place."""
+    for table, col, decl in (("characters", "roles", "TEXT"), ("orders", "wallet_division", "INTEGER")):
+        if col not in _columns(c, table):
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+    # Corporation support: transactions/journal need composite keys (the same id can appear
+    # on both a character's and a corporation's wallet).
+    tx = _columns(c, "transactions")
+    if "division" not in tx:
+        _rebuild(c, "transactions", list(tx))
+    jr = _columns(c, "journal")
+    if "division" not in jr:
+        _rebuild(c, "journal", list(jr))
 
 
 def q(sql: str, params=()) -> list:

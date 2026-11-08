@@ -4,7 +4,7 @@ import logging
 import time
 import traceback
 
-from . import db, market, sde, sso, sync
+from . import corp, db, market, sde, sso, sync
 from .esi import ESI
 
 log = logging.getLogger("worker")
@@ -24,6 +24,7 @@ class Worker:
             "prices": (3600, self.job_prices),
             "cost_indices": (3600, self.job_cost_indices),
             "characters": (300, self.job_characters),
+            "corporations": (300, self.job_corporations),
             "undercut": (600, self.job_undercut),
             "networth": (3600, self.job_networth),
         }
@@ -96,7 +97,14 @@ class Worker:
                 out.append(f"{row['name']}: {len(res)} steps")
             except sso.NeedsReauth as e:
                 out.append(f"{row['name']}: needs re-login ({e})")
+            except sso.SSOUnavailable as e:
+                out.append(f"{row['name']}: skipped, {e}")
+        if db.val("SELECT COUNT(*) FROM corporations WHERE enabled = 1 AND last_sync IS NULL", default=0):
+            self.trigger("corporations")  # a newly discovered corporation: sync it straight away
         return "; ".join(out) or "no characters"
+
+    async def job_corporations(self, force: bool = False):
+        return await corp.sync_all(self.esi, force=force)
 
     async def job_undercut(self):
         return await market.check_orders(self.esi)

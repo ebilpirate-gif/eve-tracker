@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="stats">
-  {% for w in wallets %}<div class="stat"><span>{{ w.name }}</span><b>{{ w.balance|isk }}</b></div>{% endfor %}
+  {% for w in wallets %}<div class="stat"><span>{{ w.name }}</span><b>{{ w.balance|isk }}</b>
+    {% if w.divisions %}<details class="divs"><summary class="muted small">{{ w.divisions|length }} wallet divisions</summary>
+      <table>{% for d in w.divisions %}<tr><td class="small">{{ d.name }}</td><td class="r small">{{ d.balance|isk }}</td></tr>{% endfor %}</table>
+    </details>{% endif %}</div>{% endfor %}
 </div>
 
 <section class="card">
@@ -34,8 +37,8 @@
   <h2>Trading profit (FIFO)</h2>
   <form class="filters" method="get">
     <label>Period <select name="days">{% for d in (7, 30, 90, 365, 3650) %}<option value="{{ d }}" {{ 'selected' if d == days }}>{{ 'All time' if d == 3650 else d ~ ' days' }}</option>{% endfor %}</select></label>
-    <label>Character <select name="char"><option value="0">All (combined)</option>
-      {% for c in chars %}<option value="{{ c.character_id }}" {{ 'selected' if c.character_id == char }}>{{ c.name }}</option>{% endfor %}</select></label>
+    <label>Owner <select name="char"><option value="0">All (combined)</option>
+      {% for c in chars %}<option value="{{ c.owner_id }}" {{ 'selected' if c.owner_id == char }}>{{ c.name }}</option>{% endfor %}</select></label>
     <button>Update</button>
   </form>
   <div class="stats">
@@ -64,7 +67,7 @@
     {% endfor %}
     </tbody>
   </table>
-  <p class="muted small">ESI only returns about the last 30 days of transactions, and the tracker keeps everything it has seen since you added the character, so long-term P&amp;L builds up over time. Purchases and sales are matched across all your characters, which handles buying on one alt and selling on another.</p>
+  <p class="muted small">ESI only returns about the last 30 days of transactions, and the tracker keeps everything it has seen since you added the character, so long-term P&amp;L builds up over time. Purchases and sales are matched across all your characters and corporations, which handles buying on one and selling on another.</p>
 </section>
 
 <section class="card">

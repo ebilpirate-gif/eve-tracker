@@ -18,7 +18,8 @@
       <tr>
         <td><img class="portrait" src="https://images.evetech.net/characters/{{ c.character_id }}/portrait?size=32" alt="" loading="lazy"> {{ c.name }}</td>
         <td class="muted">{{ c.last_sync|ago }}</td>
-        <td>{% if c.needs_reauth %}<a class="tag bad" href="/sso/login">re-login needed</a>{% elif c.sync_error %}<span class="bad small">{{ c.sync_error }}</span>{% else %}<span class="tag good">ok</span>{% endif %}</td>
+        <td>{% if c.needs_reauth %}<a class="tag bad" href="/sso/login">re-login needed</a>{% elif c.sync_error %}<span class="bad small">{{ c.sync_error }}</span>{% else %}<span class="tag good">ok</span>{% endif %}
+          {% if c.missing_scopes and not c.needs_reauth %}<a class="tag bad" href="/sso/login" title="Log in with this character again to grant newly added permissions (e.g. corporation data)">log in again for new permissions</a>{% endif %}</td>
         <td><form method="post" action="/characters/{{ c.character_id }}/delete" data-confirm="Remove {{ c.name }} and all their stored data?"><button class="small danger">Remove</button></form></td>
       </tr>
     {% endfor %}
@@ -27,6 +28,36 @@
   <form class="inline" method="post" action="/jobs/characters-force"><button class="small">Sync all characters now</button></form>
   {% endif %}
 </section>
+
+{% if corps %}
+<section class="card">
+  <h2>Corporations</h2>
+  <p class="muted small">Your characters' corporations are tracked automatically. EVE only shares corporation data with members holding the matching in-game role (Director sees everything), using whichever of your characters has it.</p>
+  <table>
+    <thead><tr><th>Corporation</th><th>Your characters</th>{% for step in corp_steps %}<th>{{ corp_labels[step] }}</th>{% endfor %}<th></th></tr></thead>
+    <tbody>
+    {% for c in corps %}
+      <tr class="{{ '' if c.enabled else 'muted' }}">
+        <td><img class="portrait corp" src="https://images.evetech.net/corporations/{{ c.corporation_id }}/logo?size=32" alt="" loading="lazy"> [{{ c.ticker }}] {{ c.name }}
+          <div class="muted small">synced {{ c.last_sync|ago }}</div></td>
+        <td class="small">{{ c.members|join(', ') }}</td>
+        {% for step in corp_steps %}
+          {% set st = c.access.get(step) %}
+          <td>{% if not c.enabled %}<span class="muted">–</span>
+              {% elif st == 'ok' %}<span class="tag good">✓</span>
+              {% elif st %}<span class="tag bad" title="{{ st }}">✗</span>
+              {% else %}<span class="muted small">pending</span>{% endif %}</td>
+        {% endfor %}
+        <td><form method="post" action="/corporations/{{ c.corporation_id }}/toggle"><button class="small">{{ 'Stop tracking' if c.enabled else 'Track' }}</button></form></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% for c in corps if c.enabled %}{% set problems = c.access.items()|selectattr(1, 'ne', 'ok')|list %}
+    {% if problems %}<p class="small"><b>[{{ c.ticker }}]</b> {% for step, why in problems %}{{ corp_labels[step] }}: <span class="bad">{{ why }}</span>{{ '; ' if not loop.last }}{% endfor %}</p>{% endif %}
+  {% endfor %}
+</section>
+{% endif %}
 
 <section class="card">
   <h2>EVE application</h2>

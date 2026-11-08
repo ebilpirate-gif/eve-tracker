@@ -3,6 +3,7 @@
 A self-hosted EVE Online asset tracker and trading tool, built to run on a Raspberry Pi.
 
 - **Assets & net worth:** every item across all your characters, grouped by station/structure, with ships and containers resolved and everything valued at hub prices. Hourly net-worth history.
+- **Corporations:** your characters' corporations are picked up automatically. Corp hangars (with your division names), all 7 wallet divisions, transactions, market orders, industry jobs and blueprints are merged into every page, with a filter for each character or corp. Each kind of corp data needs the matching in-game role (Director sees everything), and Settings shows exactly what each corp can access and why.
 - **Trade finder:** station-trading margins at Jita, Amarr, Dodixie, Rens and Hek, and hauling routes between them (instant-sell or listing), all after taxes and broker fees and filtered by real 30-day volume.
 - **Orders & wallet:** your open orders with undercut/outbid detection, recent transactions, and FIFO profit & loss matched across all your characters (buy on one alt, sell on another).
 - **Industry:** profit and profit/hour for every manufacturing blueprint and reaction, using your owned blueprints' ME/TE, live system cost indices, the SCC surcharge, facility tax and structure bonuses. Shows your running jobs and which ones are ready.
@@ -89,9 +90,12 @@ Run the tests with `.venv/bin/pip install pytest && .venv/bin/python -m pytest t
 - **Industry:** materials = max(runs, ⌈base × runs × (1 − ME) × (1 − structure bonus)⌉). Job cost = EIV × (system cost index + facility tax + 4% SCC). By default it only lists blueprints you can actually buy (BPOs) or already own, and products that trade at least 5 units a day.
 - **P&L:** FIFO across all your characters. Sales with no recorded purchase (loot, manufactured goods, stock bought before you added the character) are shown as "unmatched" and left out of profit. ESI only exposes about the last 30 days of transactions, so the history builds up from the day you install the app.
 
+## Roadmap
+
+**Phase 2: map.** A zoomable map of New Eden showing where each character is (system, docked or in space, ship), with optional layers for asset value per system, orders and industry jobs, and routes to trade hubs. It needs the location permissions added to the EVE application and each character to log in once more.
+
 ## Limitations / ideas for later
 
-- Corporation assets, wallets and orders (needs director-level corp scopes).
 - Invention / T2 manufacturing chains and building components yourself.
 - Player-structure markets (e.g. Perimeter Keepstar) as trade hubs.
 - Discord/push notifications for undercuts and finished jobs.

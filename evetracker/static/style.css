@@ -101,3 +101,7 @@ form.stack input { width: 100%; }
 .bad-banner { background: #2a1414; border-color: #6b2b2b; color: #ffb3b3; }
 .good-banner { background: #10261d; border: 1px solid #1f5c43; color: #9ff0c8; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; }
 @media (max-width: 640px) { .scopes { columns: 1; } }
+
+.portrait.corp { border-radius: 4px; }
+details.divs { margin-top: 6px; }
+details.divs table td { padding: 2px 4px; border: 0; }

@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, config, db, industry, market, pnl, sde, sso, sync
+from . import auth, config, corp, db, industry, market, pnl, sde, sso, sync
 from .worker import Worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -189,8 +189,10 @@ async def sso_callback(request: Request, code: str = "", state: str = ""):
         return HTMLResponse("Invalid SSO state. <a href='/settings'>Try again</a>.", status_code=400)
     try:
         char = await sso.exchange_code(code)
-    except sso.NeedsReauth as e:
-        return HTMLResponse(f"SSO failed: {e}. <a href='/settings'>Back</a>", status_code=400)
+    except (sso.NeedsReauth, sso.SSOUnavailable) as e:
+        from html import escape
+        return HTMLResponse(f"EVE login failed: {escape(str(e))}. Check the Client ID and Secret Key in "
+                            "<a href='/settings'>Settings</a> and try again.", status_code=400)
     log.info("added character %s", char["name"])
     worker = request.app.state.worker
     worker.trigger("characters")
@@ -203,6 +205,14 @@ def delete_character(character_id: int):
         for table in ("characters", "sync_state", "assets", "wallet", "orders", "industry_jobs", "blueprints",
                       "skills", "networth", "transactions", "journal"):
             c.execute(f"DELETE FROM {table} WHERE character_id = ?", (character_id,))
+        orphans = [r[0] for r in c.execute("SELECT corporation_id FROM corporations WHERE corporation_id NOT IN "
+                                           "(SELECT corporation_id FROM characters WHERE corporation_id IS NOT NULL)")]
+        for corp_id in orphans:
+            c.execute("DELETE FROM corporations WHERE corporation_id = ?", (corp_id,))
+            c.execute("DELETE FROM corp_wallets WHERE corporation_id = ?", (corp_id,))
+            for table in ("sync_state", "assets", "wallet", "orders", "industry_jobs", "blueprints", "networth",
+                          "transactions", "journal"):
+                c.execute(f"DELETE FROM {table} WHERE character_id = ?", (corp_id,))
     return RedirectResponse("/settings", status_code=303)
 
 
@@ -212,6 +222,7 @@ async def run_job(request: Request, name: str):
     if name == "characters-force":
         import asyncio
         asyncio.create_task(worker.run_job("characters", lambda: worker.job_characters(force=True)))
+        asyncio.create_task(worker.run_job("corporations", lambda: worker.job_corporations(force=True)))
     else:
         worker.trigger(name)
     return back(request)
@@ -223,13 +234,23 @@ def characters():
     return [dict(r) for r in db.q("SELECT * FROM characters ORDER BY name")]
 
 
+def owners():
+    """Characters and tracked corporations, for owner filters."""
+    return [dict(r) for r in db.q("SELECT o.* FROM owners o LEFT JOIN corporations c ON c.corporation_id = o.owner_id "
+                                  "WHERE o.is_corp = 0 OR c.enabled = 1 ORDER BY o.is_corp, o.name")]
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     prices = market.price_map()
     chars = characters()
     for c in chars:
-        c["nw"] = sync.character_networth(c["character_id"], prices)
-    totals = {k: sum(c["nw"][k] for c in chars) for k in ("wallet", "assets", "sell_orders", "buy_escrow", "total")}
+        c["nw"] = sync.owner_networth(c["character_id"], prices)
+    corps = [c for c in corp.corporations() if c["enabled"]]
+    for c in corps:
+        c["nw"] = sync.owner_networth(c["corporation_id"], prices)
+    everyone = chars + corps
+    totals = {k: sum(c["nw"][k] for c in everyone) for k in ("wallet", "assets", "sell_orders", "buy_escrow", "total")}
     series = db.q("SELECT ts, SUM(wallet + assets + sell_orders + buy_escrow) AS v FROM networth "
                   "WHERE ts > ? GROUP BY ts ORDER BY ts", (time.time() - 90 * 86400,))
     undercut = db.val("SELECT COUNT(*) FROM orders WHERE undercut = 1", default=0)
@@ -237,7 +258,7 @@ def dashboard(request: Request):
     jobs_ready = db.val("SELECT COUNT(*) FROM industry_jobs WHERE status = 'ready' OR (status = 'active' AND end_date <= ?)",
                         (now_iso,), 0)
     jobs_active = db.val("SELECT COUNT(*) FROM industry_jobs WHERE status = 'active' AND end_date > ?", (now_iso,), 0)
-    return render(request, "dashboard.html", chars=chars, totals=totals, chart=svg_chart(series),
+    return render(request, "dashboard.html", chars=chars, corps=corps, totals=totals, chart=svg_chart(series),
                   undercut=undercut, jobs_ready=jobs_ready, jobs_active=jobs_active,
                   hub_updated=db.get_kv("hub_updated:" + db.get_setting("valuation_hub")))
 
@@ -268,9 +289,11 @@ def assets_page(request: Request, char: str = "0", q: str = "", min_value: str =
         params.append(char)
     rows = db.q(f"""SELECT a.*, t.name AS type_name, COALESCE(t.packaged_volume, t.volume) AS m3, c.name AS char_name
                     FROM assets a LEFT JOIN types t ON t.type_id = a.type_id
-                    LEFT JOIN characters c ON c.character_id = a.character_id
+                    LEFT JOIN owners c ON c.owner_id = a.character_id
                     {'WHERE ' + ' AND '.join(where) if where else ''}""", params)
     by_id = {r["item_id"]: r for r in rows}
+    corp_ids = {r[0] for r in db.q("SELECT corporation_id FROM corporations")}
+    divisions = {cid: corp.division_names(cid) for cid in corp_ids}
     ql = q.lower()
     locations = defaultdict(lambda: {"value": 0.0, "items": [], "count": 0})
     total = 0.0
@@ -284,13 +307,16 @@ def assets_page(request: Request, char: str = "0", q: str = "", min_value: str =
             continue
         parent = by_id.get(r["location_id"])
         inside = None
-        if parent:
+        if parent and parent["location_flag"] != "OfficeFolder":  # items in an office show their hangar instead
             inside = parent["item_name"] or parent["type_name"]
+        flag = r["location_flag"]
+        if r["character_id"] in corp_ids:
+            flag = corp.flag_label(flag, divisions.get(r["character_id"]))
         loc = locations[r["root_location_id"]]
         loc["value"] += value
         loc["count"] += 1
         loc["items"].append({"type_id": r["type_id"], "name": name, "qty": r["quantity"], "unit": unit,
-                             "value": value, "char": r["char_name"], "flag": r["location_flag"],
+                             "value": value, "char": r["char_name"], "flag": flag,
                              "inside": inside, "label": r["item_name"], "bpc": r["is_blueprint_copy"]})
         total += value
     locs = []
@@ -298,7 +324,7 @@ def assets_page(request: Request, char: str = "0", q: str = "", min_value: str =
         loc["items"].sort(key=lambda i: i["value"], reverse=True)
         locs.append({"id": lid, "name": sde.location_name(lid), **loc})
     locs.sort(key=lambda x: x["value"], reverse=True)
-    return render(request, "assets.html", locations=locs, total=total, chars=characters(), char=char, q=q,
+    return render(request, "assets.html", locations=locs, total=total, chars=owners(), char=char, q=q,
                   min_value=min_value, item_count=sum(l["count"] for l in locs))
 
 
@@ -329,16 +355,23 @@ def trade_page(request: Request, mode: str = "station", hub: str = "jita", src: 
 def orders_page(request: Request, days: str = "30", char: str = "0"):
     days, char = max(1, parse_int(days, 30)), parse_int(char)
     orders = db.q("""SELECT o.*, t.name AS type_name, c.name AS char_name FROM orders o
-                     LEFT JOIN types t ON t.type_id = o.type_id LEFT JOIN characters c ON c.character_id = o.character_id
+                     LEFT JOIN types t ON t.type_id = o.type_id LEFT JOIN owners c ON c.owner_id = o.character_id
                      ORDER BY o.is_buy, o.undercut DESC, t.name""")
     items, totals = pnl.report(days, char or None)
     txs = db.q("""SELECT x.*, t.name AS type_name, c.name AS char_name FROM transactions x
-                  LEFT JOIN types t ON t.type_id = x.type_id LEFT JOIN characters c ON c.character_id = x.character_id
+                  LEFT JOIN types t ON t.type_id = x.type_id LEFT JOIN owners c ON c.owner_id = x.character_id
                   ORDER BY date DESC LIMIT 200""")
-    wallets = db.q("SELECT c.name, w.balance, w.updated FROM wallet w JOIN characters c USING (character_id) ORDER BY c.name")
+    wallets = [dict(r) for r in db.q("SELECT c.owner_id, c.name, c.is_corp, w.balance, w.updated FROM wallet w "
+                                      "JOIN owners c ON c.owner_id = w.character_id ORDER BY c.is_corp, c.name")]
+    for w in wallets:
+        if w["is_corp"]:
+            divs = corp.division_names(w["owner_id"])
+            w["divisions"] = [{"name": corp.wallet_label(w["owner_id"], r["division"], divs), "balance": r["balance"]}
+                              for r in db.q("SELECT division, balance FROM corp_wallets WHERE corporation_id = ? "
+                                            "ORDER BY division", (w["owner_id"],))]
     last_check = db.val("SELECT MAX(checked_at) FROM orders")
     return render(request, "orders.html", orders=orders, items=items[:300], totals=totals, txs=txs, days=days,
-                  wallets=wallets, chars=characters(), char=char, last_check=last_check)
+                  wallets=wallets, chars=owners(), char=char, last_check=last_check)
 
 
 @app.get("/industry", response_class=HTMLResponse)
@@ -348,7 +381,7 @@ def industry_page(request: Request, activity: str = "1", runs: str = "10", owned
     runs = max(1, min(parse_int(runs, 10), 1000))
     owned, unseeded, min_volume = parse_int(owned), parse_int(unseeded), parse_num(min_volume, 5)
     rows = industry.all_profitability(activity, runs, bool(owned), q, min_volume, bool(unseeded))
-    jobs = db.q("""SELECT j.*, c.name AS char_name FROM industry_jobs j LEFT JOIN characters c USING (character_id)
+    jobs = db.q("""SELECT j.*, c.name AS char_name FROM industry_jobs j LEFT JOIN owners c ON c.owner_id = j.character_id
                    WHERE j.status IN ('active', 'ready', 'paused') ORDER BY j.end_date""")
     return render(request, "industry.html", rows=rows[:300], total_rows=len(rows), activity=activity, runs=runs,
                   owned=owned, q=q, min_volume=min_volume, unseeded=unseeded, jobs=jobs,
@@ -375,8 +408,12 @@ def blueprint_page(request: Request, bp_type_id: int, runs: str = "10", me: str 
 def settings_page(request: Request, added: int = 0):
     settings = {k: db.get_setting(k) for k in db.DEFAULT_SETTINGS}
     jobs = db.q("SELECT * FROM job_log ORDER BY job")
-    steps = db.q("SELECT s.*, c.name FROM sync_state s JOIN characters c USING (character_id) ORDER BY c.name, s.step")
-    return render(request, "settings.html", settings=settings, chars=characters(), jobs=jobs, steps=steps,
+    steps = db.q("SELECT s.*, c.name FROM sync_state s JOIN owners c ON c.owner_id = s.character_id "
+                 "ORDER BY c.is_corp, c.name, s.step")
+    return render(request, "settings.html", settings=settings, chars=[
+                      dict(c, missing_scopes=bool(set(sso.SCOPES) - set((c["scopes"] or "").split())))
+                      for c in characters()],
+                  corps=corp.corporations(), corp_steps=corp.STEPS, corp_labels=corp.LABELS, jobs=jobs, steps=steps,
                   fees=market.fees(), added=added, callback_url=sso.callback_url(), scopes=sso.SCOPES,
                   client_id=sso.client_id(), has_secret=bool(sso.client_secret()), sso_from_env=sso.from_env(),
                   password_from_env=auth.from_env(), suggested_callback=suggested_callback(request),
@@ -500,3 +537,9 @@ def change_password(request: Request, current: str = Form(...), password: str = 
     auth.set_password(password)
     request.session["authed"] = auth.session_token()  # other browsers are logged out
     return RedirectResponse("/settings?msg=" + quote("Password changed."), status_code=303)
+
+
+@app.post("/corporations/{corporation_id}/toggle")
+def toggle_corporation(corporation_id: int):
+    db.ex("UPDATE corporations SET enabled = 1 - enabled WHERE corporation_id = ?", (corporation_id,))
+    return RedirectResponse("/settings", status_code=303)

@@ -5,10 +5,11 @@ from datetime import datetime, timedelta, timezone
 from . import db, market
 
 
-def fifo(transactions, sales_tax: float = 0.0, since: str = ""):
+def fifo(transactions, sales_tax: float = 0.0, since: str = "", only_owner: int | None = None):
     """transactions: dicts sorted by date with type_id, quantity, unit_price, is_buy, date.
     Each sale is matched against the oldest unconsumed purchases. Sales before `since` still
-    consume purchase lots but are not reported. Sales tax is an estimate; actual taxes and
+    consume purchase lots but are not reported, and so are sales by owners other than
+    `only_owner` (purchases always match across all owners). Sales tax is an estimate; actual taxes and
     broker fees come from the wallet journal."""
     lots: dict[int, deque] = defaultdict(deque)
     stats: dict[int, dict] = {}
@@ -27,7 +28,7 @@ def fifo(transactions, sales_tax: float = 0.0, since: str = ""):
             qty -= take
             if q[0][0] == 0:
                 q.popleft()
-        if t["date"] < since:
+        if t["date"] < since or (only_owner and t.get("character_id") != only_owner):
             continue
         matched = t["quantity"] - qty
         s = stats.setdefault(tid, {"type_id": tid, "sold": 0, "revenue": 0.0, "cost": 0.0,
@@ -47,13 +48,12 @@ def fifo(transactions, sales_tax: float = 0.0, since: str = ""):
 
 def report(days: int = 30, character_id: int | None = None):
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    where, params = "", []
-    if character_id:
-        where, params = "WHERE character_id = ?", [character_id]
-    rows = db.q(f"SELECT type_id, quantity, unit_price, is_buy, date FROM transactions {where} "
-                "ORDER BY date, transaction_id", params)
+    # Match purchases across every character and corporation (buy on one, sell on another),
+    # then report only the selected owner's sales.
+    rows = db.q("SELECT character_id, type_id, quantity, unit_price, is_buy, date FROM transactions "
+                "ORDER BY date, transaction_id")
     f = market.fees()
-    stats = fifo([dict(r) for r in rows], f["sales_tax"], since)
+    stats = fifo([dict(r) for r in rows], f["sales_tax"], since, character_id)
     jwhere = "WHERE date >= ?" + (" AND character_id = ?" if character_id else "")
     jparams = [since] + ([character_id] if character_id else [])
     fee_rows = {r[0]: r[1] for r in db.q(

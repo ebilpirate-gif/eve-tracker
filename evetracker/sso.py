@@ -21,11 +21,23 @@ SCOPES = [
     "esi-industry.read_character_jobs.v1",
     "esi-characters.read_blueprints.v1",
     "esi-skills.read_skills.v1",
+    # corporation data (each also needs the matching in-game corp role)
+    "esi-characters.read_corporation_roles.v1",
+    "esi-corporations.read_divisions.v1",
+    "esi-assets.read_corporation_assets.v1",
+    "esi-wallet.read_corporation_wallets.v1",
+    "esi-markets.read_corporation_orders.v1",
+    "esi-industry.read_corporation_jobs.v1",
+    "esi-corporations.read_blueprints.v1",
 ]
 
 
 class NeedsReauth(Exception):
-    pass
+    """The character's login is no longer valid; the user must log in again."""
+
+
+class SSOUnavailable(Exception):
+    """EVE's login server couldn't be reached; try again later (not the user's fault)."""
 
 
 _locks: dict[int, asyncio.Lock] = {}
@@ -78,12 +90,17 @@ def _basic_auth() -> str:
 
 
 async def _token_request(data: dict) -> dict:
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.post(TOKEN_URL, data=data, headers={
-            "Authorization": _basic_auth(),
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Host": "login.eveonline.com",
-        })
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(TOKEN_URL, data=data, headers={
+                "Authorization": _basic_auth(),
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Host": "login.eveonline.com",
+            })
+    except httpx.HTTPError as e:
+        raise SSOUnavailable(f"EVE login server unreachable: {e}") from e
+    if resp.status_code >= 500:
+        raise SSOUnavailable(f"EVE login server error ({resp.status_code})")
     if resp.status_code >= 400:
         raise NeedsReauth(f"SSO token request failed ({resp.status_code}): {resp.text[:200]}")
     return resp.json()

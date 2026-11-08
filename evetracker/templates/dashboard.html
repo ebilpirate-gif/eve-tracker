@@ -28,15 +28,27 @@
 </section>
 
 <section class="card">
-  <h2>Characters</h2>
+  <h2>{{ 'Characters & corporations' if corps else 'Characters' }}</h2>
   {% if chars %}
   <table class="sortable">
-    <thead><tr><th>Character</th><th class="r">Wallet</th><th class="r">Assets</th><th class="r">Sell orders</th><th class="r">Escrow</th><th class="r">Total</th><th>Synced</th></tr></thead>
+    <thead><tr><th>Owner</th><th class="r">Wallet</th><th class="r">Assets</th><th class="r">Sell orders</th><th class="r">Escrow</th><th class="r">Total</th><th>Synced</th></tr></thead>
     <tbody>
     {% for c in chars %}
       <tr>
         <td><img class="portrait" src="https://images.evetech.net/characters/{{ c.character_id }}/portrait?size=32" alt="" loading="lazy"> {{ c.name }}
           {% if c.needs_reauth %}<a class="tag bad" href="/sso/login">re-login needed</a>{% elif c.sync_error %}<span class="tag bad" title="{{ c.sync_error }}">sync errors</span>{% endif %}</td>
+        <td class="r" data-v="{{ c.nw.wallet }}">{{ c.nw.wallet|isk }}</td>
+        <td class="r" data-v="{{ c.nw.assets }}">{{ c.nw.assets|isk }}</td>
+        <td class="r" data-v="{{ c.nw.sell_orders }}">{{ c.nw.sell_orders|isk }}</td>
+        <td class="r" data-v="{{ c.nw.buy_escrow }}">{{ c.nw.buy_escrow|isk }}</td>
+        <td class="r" data-v="{{ c.nw.total }}"><b>{{ c.nw.total|isk }}</b></td>
+        <td class="muted">{{ c.last_sync|ago }}</td>
+      </tr>
+    {% endfor %}
+    {% for c in corps %}
+      <tr>
+        <td><img class="portrait corp" src="https://images.evetech.net/corporations/{{ c.corporation_id }}/logo?size=32" alt="" loading="lazy"> [{{ c.ticker }}] {{ c.name }}
+          <span class="tag">corp</span>{% if c.sync_error %}<span class="tag bad" title="{{ c.sync_error }}">sync errors</span>{% endif %}</td>
         <td class="r" data-v="{{ c.nw.wallet }}">{{ c.nw.wallet|isk }}</td>
         <td class="r" data-v="{{ c.nw.assets }}">{{ c.nw.assets|isk }}</td>
         <td class="r" data-v="{{ c.nw.sell_orders }}">{{ c.nw.sell_orders|isk }}</td>

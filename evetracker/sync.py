@@ -1,4 +1,5 @@
 """Per-character data sync from authenticated ESI endpoints."""
+import json
 import logging
 import time
 
@@ -9,6 +10,8 @@ log = logging.getLogger("sync")
 
 # step -> (minimum seconds between runs, required scope)
 STEPS = {
+    "affiliation": (6 * 3600, None),  # public: which corporation the character is in
+    "roles": (3600, "esi-characters.read_corporation_roles.v1"),
     "wallet": (300, "esi-wallet.read_character_wallet.v1"),
     "orders": (1200, "esi-markets.read_character_orders.v1"),
     "transactions": (3600, "esi-wallet.read_character_wallet.v1"),
@@ -26,7 +29,7 @@ async def sync_character(esi: ESI, char_id: int, force: bool = False) -> dict:
     for step, (interval, scope) in STEPS.items():
         if not force and time.time() - (state.get(step) or 0) < interval:
             continue
-        if not sso.has_scope(char_id, scope):
+        if scope and not sso.has_scope(char_id, scope):
             results[step] = "missing scope"
             continue
         started = time.time()
@@ -52,8 +55,49 @@ async def sync_wallet(esi, cid, token):
     return f"{bal:,.2f} ISK"
 
 
+def is_npc_corp(corp_id) -> bool:
+    return corp_id is not None and 1000000 <= corp_id < 2000000
+
+
+async def ensure_corporation(esi, corp_id: int) -> None:
+    """Start tracking a player corporation (NPC corps have no data to read)."""
+    if not corp_id or is_npc_corp(corp_id):
+        return
+    info = await esi.get(f"/corporations/{corp_id}/")
+    db.ex("""INSERT INTO corporations (corporation_id, name, ticker, ceo_id) VALUES (?, ?, ?, ?)
+             ON CONFLICT(corporation_id) DO UPDATE SET name = excluded.name, ticker = excluded.ticker,
+             ceo_id = excluded.ceo_id""", (corp_id, info.get("name"), info.get("ticker"), info.get("ceo_id")))
+
+
+async def sync_affiliation(esi, cid, token):
+    info = await esi.get(f"/characters/{cid}/")
+    corp_id = info.get("corporation_id")
+    db.ex("UPDATE characters SET corporation_id = ? WHERE character_id = ?", (corp_id, cid))
+    await ensure_corporation(esi, corp_id)
+    return f"corporation {corp_id}"
+
+
+async def sync_roles(esi, cid, token):
+    data = await esi.get(f"/characters/{cid}/roles/", token=token)
+    roles = sorted(set(data.get("roles", [])))
+    db.ex("UPDATE characters SET roles = ? WHERE character_id = ?", (json.dumps(roles), cid))
+    return ", ".join(roles) or "no corp roles"
+
+
+def tracked_corps() -> set[int]:
+    return {r[0] for r in db.q("SELECT corporation_id FROM corporations WHERE enabled = 1")}
+
+
+ORDER_COLS = ("order_id, character_id, type_id, region_id, location_id, is_buy, price, volume_total, volume_remain, "
+              "issued, duration, escrow, range, competitor_price, undercut, checked_at, wallet_division")
+
+
 async def sync_orders(esi, cid, token):
     data = await esi.get(f"/characters/{cid}/orders/", token=token)
+    corp_id = db.val("SELECT corporation_id FROM characters WHERE character_id = ?", (cid,))
+    if corp_id in tracked_corps():
+        # Orders placed on the corporation's behalf are synced (and counted) as the corp's.
+        data = [o for o in data if not o.get("is_corporation")]
     with db.tx() as c:
         old = {r["order_id"]: r for r in c.execute("SELECT * FROM orders WHERE character_id = ?", (cid,))}
         c.execute("DELETE FROM orders WHERE character_id = ?", (cid,))
@@ -61,18 +105,19 @@ async def sync_orders(esi, cid, token):
             prev = old.get(o["order_id"])
             keep = prev and prev["price"] == o["price"]  # keep undercut state unless we repriced
             c.execute(
-                "INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"INSERT OR IGNORE INTO orders ({ORDER_COLS}) VALUES ({', '.join('?' * 17)})",
                 (o["order_id"], cid, o["type_id"], o["region_id"], o["location_id"], int(o.get("is_buy_order", False)),
                  o["price"], o["volume_total"], o["volume_remain"], o["issued"], o["duration"], o.get("escrow"),
                  o.get("range"), prev["competitor_price"] if keep else None, prev["undercut"] if keep else None,
-                 prev["checked_at"] if keep else None))
+                 prev["checked_at"] if keep else None, None))
     return f"{len(data)} orders"
 
 
 async def sync_transactions(esi, cid, token):
     data = await esi.get(f"/characters/{cid}/wallet/transactions/", token=token)
     db.exmany(
-        "INSERT OR IGNORE INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO transactions (transaction_id, character_id, date, type_id, quantity, unit_price, "
+        "is_buy, location_id, client_id, journal_ref_id, is_personal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [(t["transaction_id"], cid, t["date"], t["type_id"], t["quantity"], t["unit_price"], int(t["is_buy"]),
           t["location_id"], t["client_id"], t["journal_ref_id"], int(t["is_personal"])) for t in data])
     return f"{len(data)} transactions"
@@ -81,7 +126,8 @@ async def sync_transactions(esi, cid, token):
 async def sync_journal(esi, cid, token):
     data = await esi.get_pages(f"/characters/{cid}/wallet/journal/", token=token)
     db.exmany(
-        "INSERT OR IGNORE INTO journal VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO journal (id, character_id, date, ref_type, amount, balance, description) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
         [(j["id"], cid, j["date"], j["ref_type"], j.get("amount", 0), j.get("balance"), j.get("description"))
          for j in data])
     return f"{len(data)} journal entries"
@@ -152,7 +198,8 @@ async def sync_industry(esi, cid, token):
     with db.tx() as c:
         c.execute("DELETE FROM industry_jobs WHERE character_id = ?", (cid,))
         c.executemany(
-            "INSERT OR REPLACE INTO industry_jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            # OR IGNORE: if the corporation sync already has this job, it stays the corp's.
+            "INSERT OR IGNORE INTO industry_jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(j["job_id"], cid, j["activity_id"], j["blueprint_type_id"], j.get("product_type_id"), j["runs"],
               j["status"], j["start_date"], j["end_date"], j["facility_id"], j.get("cost")) for j in data])
     return f"{len(data)} jobs"
@@ -180,7 +227,8 @@ async def sync_skills(esi, cid, token):
 
 # ---------- net worth ----------
 
-def character_networth(cid: int, prices: dict | None = None) -> dict:
+def owner_networth(cid: int, prices: dict | None = None) -> dict:
+    """Net worth of a character or corporation (owner id)."""
     prices = prices or market.price_map()
     wallet = db.val("SELECT balance FROM wallet WHERE character_id = ?", (cid,), 0.0)
     assets = 0.0
@@ -198,9 +246,13 @@ def character_networth(cid: int, prices: dict | None = None) -> dict:
 def snapshot_networth() -> str:
     prices = market.price_map()
     ts = int(time.time() // 3600 * 3600)
-    chars = db.q("SELECT character_id FROM characters")
+    chars = db.q("SELECT character_id FROM characters UNION ALL "
+                 "SELECT corporation_id FROM corporations WHERE enabled = 1")
     for (cid,) in chars:
-        nw = character_networth(cid, prices)
+        nw = owner_networth(cid, prices)
         db.ex("INSERT OR REPLACE INTO networth VALUES (?, ?, ?, ?, ?, ?)",
               (ts, cid, nw["wallet"], nw["assets"], nw["sell_orders"], nw["buy_escrow"]))
-    return f"{len(chars)} characters"
+    return f"{len(chars)} owners"
+
+
+character_networth = owner_networth  # backwards-compatible name
