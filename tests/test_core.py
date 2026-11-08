@@ -196,3 +196,18 @@ def test_pages_render(fake_char):
         assert r.status_code == 403
         r = client.get("/sso/login", follow_redirects=False)
         assert r.status_code == 303 and "login.eveonline.com" in r.headers["location"]
+
+
+def test_app_password(monkeypatch):
+    from fastapi.testclient import TestClient
+    from evetracker import config
+    from evetracker.web import app
+    monkeypatch.setattr(config, "APP_PASSWORD", "hunter2")
+    with TestClient(app) as client:
+        r = client.get("/assets", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == "/login"
+        assert client.get("/healthz").status_code == 200
+        assert "Wrong password" in client.post("/login", data={"password": "nope"}).text
+        r = client.post("/login", data={"password": "hunter2"}, follow_redirects=False)
+        assert r.status_code == 303
+        assert client.get("/assets").status_code == 200
