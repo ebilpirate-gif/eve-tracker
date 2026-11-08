@@ -1,0 +1,18 @@
+[Unit]
+Description=EVE Tracker (asset tracker & trading tool)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__DIR__
+EnvironmentFile=__DIR__/.env
+# Single worker on purpose: the background sync runs inside the web process.
+ExecStart=__DIR__/.venv/bin/uvicorn evetracker.web:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers
+Restart=on-failure
+RestartSec=10
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

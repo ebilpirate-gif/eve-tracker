@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="stats">
+  {% for w in wallets %}<div class="stat"><span>{{ w.name }}</span><b>{{ w.balance|isk }}</b></div>{% endfor %}
+</div>
+
+<section class="card">
+  <h2>Open orders <span class="muted small">competitors checked {{ last_check|ago }}</span>
+    <form class="inline" method="post" action="/jobs/undercut"><button class="small">Check now</button></form></h2>
+  <table class="sortable">
+    <thead><tr><th>Item</th><th>Side</th><th class="r">My price</th><th class="r">Best rival</th><th>Status</th><th class="r">Remaining</th><th class="r">Value</th><th>Location</th><th>Owner</th><th>Issued</th></tr></thead>
+    <tbody>
+    {% for o in orders %}
+      <tr class="{{ 'row-bad' if o.undercut }}">
+        <td><img class="icon" src="https://images.evetech.net/types/{{ o.type_id }}/icon?size=32" alt="" loading="lazy"> {{ o.type_name }}</td>
+        <td>{{ 'Buy' if o.is_buy else 'Sell' }}</td>
+        <td class="r" data-v="{{ o.price }}">{{ o.price|isk }}</td>
+        <td class="r" data-v="{{ o.competitor_price or 0 }}">{{ o.competitor_price|isk }}</td>
+        <td>{% if o.undercut %}<span class="tag bad">{{ 'outbid' if o.is_buy else 'undercut' }}</span>{% elif o.checked_at %}<span class="tag good">best</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+        <td class="r" data-v="{{ o.volume_remain }}">{{ o.volume_remain|num }} / {{ o.volume_total|num }}</td>
+        <td class="r" data-v="{{ o.price * o.volume_remain }}">{{ (o.price * o.volume_remain)|isk }}</td>
+        <td class="muted">{{ location_name(o.location_id) }}</td>
+        <td class="muted">{{ o.char_name }}</td>
+        <td class="muted" data-v="{{ o.issued }}">{{ o.issued|ago }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="10" class="muted">No open orders.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Trading profit (FIFO)</h2>
+  <form class="filters" method="get">
+    <label>Period <select name="days">{% for d in (7, 30, 90, 365, 3650) %}<option value="{{ d }}" {{ 'selected' if d == days }}>{{ 'All time' if d == 3650 else d ~ ' days' }}</option>{% endfor %}</select></label>
+    <label>Character <select name="char"><option value="0">All (combined)</option>
+      {% for c in chars %}<option value="{{ c.character_id }}" {{ 'selected' if c.character_id == char }}>{{ c.name }}</option>{% endfor %}</select></label>
+    <button>Update</button>
+  </form>
+  <div class="stats">
+    <div class="stat"><span>Sales (matched)</span><b>{{ totals.revenue|isk }}</b></div>
+    <div class="stat"><span>Cost basis</span><b>{{ totals.cost|isk }}</b></div>
+    <div class="stat"><span>Sales tax (est.)</span><b>{{ totals.est_tax|isk }}</b></div>
+    <div class="stat"><span>Broker fees (journal)</span><b>{{ totals.broker_fees|isk }}</b></div>
+    <div class="stat big"><span>Net profit</span><b class="{{ 'good' if totals.net >= 0 else 'bad' }}">{{ totals.net|isk }}</b></div>
+  </div>
+  <table class="sortable">
+    <thead><tr><th>Item</th><th class="r">Sold</th><th class="r">Revenue</th><th class="r">Cost</th><th class="r">Tax</th><th class="r">Profit</th><th class="r" title="Sold without a recorded purchase">Unmatched</th><th>Last sale</th></tr></thead>
+    <tbody>
+    {% for s in items %}
+      <tr>
+        <td>{{ type_name(s.type_id) }}</td>
+        <td class="r" data-v="{{ s.sold }}">{{ s.sold|num }}</td>
+        <td class="r" data-v="{{ s.revenue }}">{{ s.revenue|isk }}</td>
+        <td class="r" data-v="{{ s.cost }}">{{ s.cost|isk }}</td>
+        <td class="r" data-v="{{ s.tax }}">{{ s.tax|isk }}</td>
+        <td class="r {{ 'good' if s.profit >= 0 else 'bad' }}" data-v="{{ s.profit }}">{{ s.profit|isk }}</td>
+        <td class="r muted" data-v="{{ s.unmatched }}">{{ s.unmatched|num if s.unmatched else '' }}</td>
+        <td class="muted" data-v="{{ s.last_sale }}">{{ s.last_sale|ago }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="muted">No sales in this period.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted small">ESI only returns about the last 30 days of transactions, and the tracker keeps everything it has seen since you added the character, so long-term P&amp;L builds up over time. Purchases and sales are matched across all your characters, which handles buying on one alt and selling on another.</p>
+</section>
+
+<section class="card">
+  <h2>Recent transactions</h2>
+  <table class="sortable">
+    <thead><tr><th>When</th><th>Item</th><th></th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th><th>Location</th><th>Owner</th></tr></thead>
+    <tbody>
+    {% for t in txs %}
+      <tr>
+        <td class="muted" data-v="{{ t.date }}">{{ t.date|ago }}</td>
+        <td>{{ t.type_name }}</td>
+        <td><span class="tag {{ 'bad' if t.is_buy else 'good' }}">{{ 'bought' if t.is_buy else 'sold' }}</span></td>
+        <td class="r" data-v="{{ t.quantity }}">{{ t.quantity|num }}</td>
+        <td class="r" data-v="{{ t.unit_price }}">{{ t.unit_price|isk }}</td>
+        <td class="r" data-v="{{ t.quantity * t.unit_price }}">{{ (t.quantity * t.unit_price)|isk }}</td>
+        <td class="muted">{{ location_name(t.location_id) }}</td>
+        <td class="muted">{{ t.char_name }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="muted">No transactions yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

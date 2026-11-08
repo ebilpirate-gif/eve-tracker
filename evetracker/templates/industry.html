@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+{% if jobs %}
+<section class="card">
+  <h2>Industry jobs</h2>
+  <table class="sortable">
+    <thead><tr><th>Blueprint</th><th>Activity</th><th class="r">Runs</th><th>Status</th><th>Ends</th><th>Owner</th></tr></thead>
+    <tbody>
+    {% for j in jobs %}
+      {% set done = j.status == 'ready' or (j.status == 'active' and j.end_date <= now_iso) %}
+      <tr>
+        <td><img class="icon" src="https://images.evetech.net/types/{{ j.blueprint_type_id }}/bp?size=32" alt="" loading="lazy"> {{ type_name(j.blueprint_type_id) }}</td>
+        <td>{{ ACTIVITY_NAMES.get(j.activity_id, j.activity_id) }}</td>
+        <td class="r">{{ j.runs }}</td>
+        <td>{% if done %}<span class="tag good">ready</span>{% else %}{{ j.status }}{% endif %}</td>
+        <td data-v="{{ j.end_date }}">{{ j.end_date|ago }}</td>
+        <td class="muted">{{ j.char_name }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<div class="tabs">
+  <a href="?activity=1&runs={{ runs }}&owned={{ owned }}" class="{{ 'on' if activity == 1 }}">Manufacturing</a>
+  <a href="?activity=11&runs={{ runs }}&owned={{ owned }}" class="{{ 'on' if activity == 11 }}">Reactions</a>
+</div>
+<form class="filters" method="get">
+  <input type="hidden" name="activity" value="{{ activity }}">
+  <label>Search product <input name="q" value="{{ q }}"></label>
+  <label>Runs <input name="runs" type="number" min="1" max="1000" value="{{ runs }}"></label>
+  <label>Min daily volume <input name="min_volume" type="number" step="any" value="{{ min_volume }}"></label>
+  <label class="check"><input type="checkbox" name="owned" value="1" {{ 'checked' if owned }}> Only blueprints I own</label>
+  <label class="check"><input type="checkbox" name="unseeded" value="1" {{ 'checked' if unseeded }}> Include BPC-only (faction etc.)</label>
+  <button>Update</button>
+</form>
+<p class="muted small">
+  Building in {{ system }} (cost index {{ '%.2f'|format(cost_index * 100) }}%). Materials are bought from the hub and products sold there via sell orders after tax and broker fees.
+  ME/TE come from your best owned blueprint, or the default from Settings. Components are bought rather than built, and skill time bonuses aren't applied.
+  {{ total_rows }} blueprints match{% if total_rows > 300 %}; showing the top 300{% endif %}.
+</p>
+
+<section class="card">
+  <table class="sortable">
+    <thead><tr><th>Product</th><th class="r">ME/TE</th><th class="r">Materials</th><th class="r">Job cost</th><th class="r">Revenue</th><th class="r">Profit</th><th class="r">Margin</th><th class="r">Time</th><th class="r">Profit/hour</th><th class="r">Daily vol</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td><img class="icon" src="https://images.evetech.net/types/{{ r.product_id }}/icon?size=32" alt="" loading="lazy">
+          <a href="/industry/{{ r.bp_type_id }}?runs={{ runs }}">{{ r.product_name }}</a>{% if r.owned %} <span class="tag good">owned</span>{% endif %}</td>
+        <td class="r">{{ r.me }}/{{ r.te }}</td>
+        <td class="r" data-v="{{ r.material_cost }}">{{ r.material_cost|isk }}</td>
+        <td class="r" data-v="{{ r.job_cost }}">{{ r.job_cost|isk }}</td>
+        <td class="r" data-v="{{ r.revenue }}">{{ r.revenue|isk }}</td>
+        <td class="r {{ 'good' if r.profit >= 0 else 'bad' }}" data-v="{{ r.profit }}">{{ r.profit|isk }}</td>
+        <td class="r" data-v="{{ r.margin }}">{{ r.margin|num(1) }}%</td>
+        <td class="r" data-v="{{ r.seconds }}">{{ (r.seconds / 3600)|num(1) }}h</td>
+        <td class="r" data-v="{{ r.profit_per_hour }}"><b>{{ r.profit_per_hour|isk }}</b></td>
+        <td class="r" data-v="{{ r.volume or 0 }}">{{ r.volume|num }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="10" class="muted">No results. Prices and volume history load after the first market sync (volume history can take a few minutes).</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

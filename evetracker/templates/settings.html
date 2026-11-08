@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>Characters</h2>
+  {% if added %}<p class="good">Character added. The first sync is running now.</p>{% endif %}
+  {% if not sso_configured %}
+  <div class="banner">
+    <p><b>Set up EVE SSO to add characters:</b></p>
+    <ol>
+      <li>Go to <a href="https://developers.eveonline.com/applications" target="_blank" rel="noopener">developers.eveonline.com/applications</a> and create an application.</li>
+      <li>Callback URL: <code>{{ callback_url }}</code></li>
+      <li>Scopes: {% for s in scopes %}<code>{{ s }}</code> {% endfor %}</li>
+      <li>Put the Client ID and Secret into the <code>.env</code> file as <code>EVE_CLIENT_ID</code> / <code>EVE_CLIENT_SECRET</code> and restart the service.</li>
+    </ol>
+  </div>
+  {% else %}
+  <p><a class="button" href="/sso/login">+ Add character</a> <span class="muted small">Log in with each character (alts too). Log in again on an existing character to refresh its permissions.</span></p>
+  {% endif %}
+  {% if chars %}
+  <table>
+    <thead><tr><th>Character</th><th>Last sync</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for c in chars %}
+      <tr>
+        <td><img class="portrait" src="https://images.evetech.net/characters/{{ c.character_id }}/portrait?size=32" alt="" loading="lazy"> {{ c.name }}</td>
+        <td class="muted">{{ c.last_sync|ago }}</td>
+        <td>{% if c.needs_reauth %}<a class="tag bad" href="/sso/login">re-login needed</a>{% elif c.sync_error %}<span class="bad small">{{ c.sync_error }}</span>{% else %}<span class="tag good">ok</span>{% endif %}</td>
+        <td><form method="post" action="/characters/{{ c.character_id }}/delete" data-confirm="Remove {{ c.name }} and all their stored data?"><button class="small danger">Remove</button></form></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <form class="inline" method="post" action="/jobs/characters-force"><button class="small">Sync all characters now</button></form>
+  {% endif %}
+</section>
+
+<form method="post" action="/settings">
+<section class="card">
+  <h2>Fees</h2>
+  <p class="muted small">Leave these blank to derive them from your skills (best across characters): currently {{ '%.3f'|format(fees.sales_tax * 100) }}% sales tax and {{ '%.2f'|format(fees.broker_fee * 100) }}% broker fee. Override them if you trade with good standings or at player structures.</p>
+  <div class="grid">
+    <label>Sales tax % <input name="sales_tax_pct" type="number" step="any" value="{{ settings.sales_tax_pct if settings.sales_tax_pct is not none else '' }}" placeholder="from skills"></label>
+    <label>Broker fee % <input name="broker_fee_pct" type="number" step="any" value="{{ settings.broker_fee_pct if settings.broker_fee_pct is not none else '' }}" placeholder="from skills"></label>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Markets</h2>
+  <div class="grid">
+    <fieldset><legend>Trade hubs to track</legend>
+      {% for k, h in HUBS.items() %}<label class="check"><input type="checkbox" name="hubs" value="{{ k }}" {{ 'checked' if k in settings.hubs }}> {{ h.name }}</label>{% endfor %}
+      <p class="muted small">Each hub downloads its whole region's order book. Jita is about 400 pages, so fewer hubs means less load on the Pi.</p>
+    </fieldset>
+    <label>Refresh order books every (minutes) <input name="hub_refresh_minutes" type="number" min="10" value="{{ settings.hub_refresh_minutes }}"></label>
+    <label>Value assets at <select name="valuation_hub">{% for k, h in HUBS.items() %}<option value="{{ k }}" {{ 'selected' if k == settings.valuation_hub }}>{{ h.name }}</option>{% endfor %}</select></label>
+    <label>using <select name="valuation_side">
+      <option value="sell" {{ 'selected' if settings.valuation_side == 'sell' }}>best sell price</option>
+      <option value="buy" {{ 'selected' if settings.valuation_side == 'buy' }}>best buy price (conservative)</option></select></label>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Industry</h2>
+  <div class="grid">
+    <label>Manufacturing system <input name="industry_system" value="{{ settings.industry_system }}"></label>
+    <label>Price materials/products at <select name="industry_hub">{% for k, h in HUBS.items() %}<option value="{{ k }}" {{ 'selected' if k == settings.industry_hub }}>{{ h.name }}</option>{% endfor %}</select></label>
+    <label>Buy materials from <select name="industry_material_side">
+      <option value="sell" {{ 'selected' if settings.industry_material_side == 'sell' }}>sell orders (instant)</option>
+      <option value="buy" {{ 'selected' if settings.industry_material_side == 'buy' }}>buy orders (patient)</option></select></label>
+    <label>Facility tax % <input name="industry_facility_tax_pct" type="number" step="any" value="{{ settings.industry_facility_tax_pct }}"></label>
+    <label>Structure/rig material bonus % <input name="industry_structure_me_bonus_pct" type="number" step="any" value="{{ settings.industry_structure_me_bonus_pct }}"></label>
+    <label>Default ME for unowned blueprints <input name="industry_default_me" type="number" min="0" max="10" value="{{ settings.industry_default_me }}"></label>
+  </div>
+</section>
+<button>Save settings</button>
+</form>
+
+<section class="card">
+  <h2>Background jobs</h2>
+  <table>
+    <thead><tr><th>Job</th><th>Last run</th><th class="r">Took</th><th>Result</th><th></th></tr></thead>
+    <tbody>
+    {% for j in jobs %}
+      <tr>
+        <td>{{ j.job }}</td>
+        <td class="muted">{{ j.last_run|ago }}</td>
+        <td class="r muted">{{ j.duration|num(1) }}s</td>
+        <td class="{{ 'bad' if not j.ok }} small">{{ j.message }}</td>
+        <td>{% if j.job in running %}<span class="tag">running</span>{% else %}<form method="post" action="/jobs/{{ j.job }}"><button class="small">Run</button></form>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if steps %}
+  <details><summary class="muted">Per-character sync steps</summary>
+    <table><tbody>{% for s in steps %}<tr><td>{{ s.name }}</td><td>{{ s.step }}</td><td class="muted">{{ s.last_run|ago }}</td><td class="bad small">{{ s.error or '' }}</td></tr>{% endfor %}</tbody></table>
+  </details>
+  {% endif %}
+</section>
+{% endblock %}

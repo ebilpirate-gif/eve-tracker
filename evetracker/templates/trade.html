@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="tabs">
+  <a href="?mode=station&hub={{ hub }}" class="{{ 'on' if mode == 'station' }}">Station trading</a>
+  <a href="?mode=haul&src={{ src }}&dst={{ dst }}" class="{{ 'on' if mode == 'haul' }}">Hauling</a>
+</div>
+
+<form class="filters" method="get">
+  <input type="hidden" name="mode" value="{{ mode }}">
+  {% if mode == 'station' %}
+    <label>Hub <select name="hub">{% for h in enabled %}<option value="{{ h }}" {{ 'selected' if h == hub }}>{{ HUBS[h].name }}</option>{% endfor %}</select></label>
+    <label>Min margin % <input name="min_margin" type="number" step="any" value="{{ min_margin }}"></label>
+    <label>Max buy price <input name="max_price" type="number" step="any" value="{{ max_price|int if max_price else '' }}" placeholder="any"></label>
+  {% else %}
+    <label>From <select name="src">{% for h in enabled %}<option value="{{ h }}" {{ 'selected' if h == src }}>{{ HUBS[h].name }}</option>{% endfor %}</select></label>
+    <label>To <select name="dst">{% for h in enabled %}<option value="{{ h }}" {{ 'selected' if h == dst }}>{{ HUBS[h].name }}</option>{% endfor %}</select></label>
+    <label>Sell by <select name="haul_mode">
+      <option value="instant" {{ 'selected' if haul_mode == 'instant' }}>Instant (into buy orders)</option>
+      <option value="list" {{ 'selected' if haul_mode == 'list' }}>Listing sell orders</option></select></label>
+    <label>Cargo m³ <input name="max_m3" type="number" step="any" value="{{ max_m3|int if max_m3 else '' }}" placeholder="any"></label>
+    <label>Max investment <input name="max_investment" type="number" step="any" value="{{ max_investment|int if max_investment else '' }}" placeholder="any"></label>
+    <label>Min profit/unit <input name="min_profit" type="number" step="any" value="{{ min_profit }}"></label>
+  {% endif %}
+  <label>Min daily volume <input name="min_volume" type="number" step="any" value="{{ min_volume }}"></label>
+  <button>Search</button>
+</form>
+<p class="muted small">
+  Fees in use: sales tax {{ '%.2f'|format(fees.sales_tax * 100) }}%, broker fee {{ '%.2f'|format(fees.broker_fee * 100) }}%
+  (Accounting {{ fees.accounting }}, Broker Relations {{ fees.broker_relations }}; change in Settings).
+  Order books: {% for h, t in updated.items() %}{{ HUBS[h].name }} {{ t|ago }}{{ ', ' if not loop.last }}{% endfor %}.
+  Daily volume is the region's 30-day average.
+</p>
+
+<section class="card">
+{% if mode == 'station' %}
+  <table class="sortable">
+    <thead><tr><th>Item</th><th class="r">Buy at</th><th class="r">Sell at</th><th class="r">Profit/unit</th><th class="r">Margin</th><th class="r">Daily vol</th><th class="r">Orders</th><th class="r" title="Profit if you capture 10% of daily volume">Potential/day</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td><img class="icon" src="https://images.evetech.net/types/{{ r.type_id }}/icon?size=32" alt="" loading="lazy"> {{ r.name }}</td>
+        <td class="r" data-v="{{ r.buy }}">{{ r.buy|isk }}</td>
+        <td class="r" data-v="{{ r.sell }}">{{ r.sell|isk }}</td>
+        <td class="r good" data-v="{{ r.profit }}">{{ r.profit|isk }}</td>
+        <td class="r" data-v="{{ r.margin }}">{{ r.margin|num(1) }}%</td>
+        <td class="r" data-v="{{ r.volume }}">{{ r.volume|num }}</td>
+        <td class="r" data-v="{{ r.orders }}">{{ r.orders }}</td>
+        <td class="r" data-v="{{ r.daily_potential }}"><b>{{ r.daily_potential|isk }}</b></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="muted">No results. Order books and volume history may still be loading, or the filters are too strict.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <table class="sortable">
+    <thead><tr><th>Item</th><th class="r">Buy at {{ HUBS[src].name }}</th><th class="r">Sell at {{ HUBS[dst].name }}</th><th class="r">Profit/unit</th><th class="r">Margin</th><th class="r">Profit/m³</th><th class="r">Qty</th><th class="r">Investment</th><th class="r">Cargo m³</th><th class="r">Trip profit</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td><img class="icon" src="https://images.evetech.net/types/{{ r.type_id }}/icon?size=32" alt="" loading="lazy"> {{ r.name }}</td>
+        <td class="r" data-v="{{ r.buy }}">{{ r.buy|isk }}</td>
+        <td class="r" data-v="{{ r.sell }}">{{ r.sell|isk }}</td>
+        <td class="r good" data-v="{{ r.profit }}">{{ r.profit|isk }}</td>
+        <td class="r" data-v="{{ r.margin }}">{{ r.margin|num(1) }}%</td>
+        <td class="r" data-v="{{ r.per_m3 }}">{{ r.per_m3|isk }}</td>
+        <td class="r" data-v="{{ r.qty }}">{{ r.qty|num }}</td>
+        <td class="r" data-v="{{ r.investment }}">{{ r.investment|isk }}</td>
+        <td class="r" data-v="{{ r.cargo }}">{{ r.cargo|num }}</td>
+        <td class="r" data-v="{{ r.trip_profit }}"><b>{{ r.trip_profit|isk }}</b></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="10" class="muted">No results. Both hubs need loaded order books.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted small">Quantity is capped by the stock available at the source, by buy-order depth at the destination (instant) or a week at 10% of volume (listing), and by your cargo and budget limits. Prices assume the best order fills your whole quantity, so check the actual market depth before buying.</p>
+{% endif %}
+</section>
+{% endblock %}

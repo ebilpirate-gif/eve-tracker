@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="stats">
+  <div class="stat big"><span>Net worth</span><b>{{ totals.total|isk }}</b></div>
+  <div class="stat"><span>Wallets</span><b>{{ totals.wallet|isk }}</b></div>
+  <div class="stat"><span>Assets</span><b>{{ totals.assets|isk }}</b></div>
+  <div class="stat"><span>Sell orders</span><b>{{ totals.sell_orders|isk }}</b></div>
+  <div class="stat"><span>Buy escrow</span><b>{{ totals.buy_escrow|isk }}</b></div>
+</div>
+
+<div class="alerts">
+  {% if undercut %}<a class="alert bad" href="/orders">⚠ {{ undercut }} order{{ 's' if undercut != 1 }} undercut or outbid</a>{% endif %}
+  {% if jobs_ready %}<a class="alert good" href="/industry">✓ {{ jobs_ready }} industry job{{ 's' if jobs_ready != 1 }} ready to deliver</a>{% endif %}
+  {% if jobs_active %}<a class="alert" href="/industry">{{ jobs_active }} industry jobs running</a>{% endif %}
+  <span class="alert muted">Prices: {{ hub_updated|ago }}</span>
+</div>
+
+<section class="card">
+  <h2>Net worth history</h2>
+  {% if chart %}
+  <svg viewBox="0 0 {{ chart.w }} {{ chart.h }}" class="chart" preserveAspectRatio="none" role="img" aria-label="Net worth over time">
+    <polyline points="{{ chart.points }}" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke"/>
+  </svg>
+  <div class="chart-axis"><span>{{ chart.start }}</span><span>low {{ chart.lo|isk }} · high {{ chart.hi|isk }}</span><span>{{ chart.end }}</span></div>
+  {% else %}
+  <p class="muted">An hourly snapshot is recorded once characters are synced. Check back in a few hours.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Characters</h2>
+  {% if chars %}
+  <table class="sortable">
+    <thead><tr><th>Character</th><th class="r">Wallet</th><th class="r">Assets</th><th class="r">Sell orders</th><th class="r">Escrow</th><th class="r">Total</th><th>Synced</th></tr></thead>
+    <tbody>
+    {% for c in chars %}
+      <tr>
+        <td><img class="portrait" src="https://images.evetech.net/characters/{{ c.character_id }}/portrait?size=32" alt="" loading="lazy"> {{ c.name }}
+          {% if c.needs_reauth %}<a class="tag bad" href="/sso/login">re-login needed</a>{% elif c.sync_error %}<span class="tag bad" title="{{ c.sync_error }}">sync errors</span>{% endif %}</td>
+        <td class="r" data-v="{{ c.nw.wallet }}">{{ c.nw.wallet|isk }}</td>
+        <td class="r" data-v="{{ c.nw.assets }}">{{ c.nw.assets|isk }}</td>
+        <td class="r" data-v="{{ c.nw.sell_orders }}">{{ c.nw.sell_orders|isk }}</td>
+        <td class="r" data-v="{{ c.nw.buy_escrow }}">{{ c.nw.buy_escrow|isk }}</td>
+        <td class="r" data-v="{{ c.nw.total }}"><b>{{ c.nw.total|isk }}</b></td>
+        <td class="muted">{{ c.last_sync|ago }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No characters yet. {% if sso_configured %}<a class="button" href="/sso/login">Add a character</a>{% else %}Configure EVE SSO in <a href="/settings">Settings</a> first.{% endif %}</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/industry">← Industry</a></p>
+{% if not r %}
+<p class="card">No data for this blueprint.</p>
+{% else %}
+<section class="card">
+  <h1><img class="icon" src="https://images.evetech.net/types/{{ r.product_id }}/icon?size=64" alt=""> {{ r.product_name }}</h1>
+  <form class="filters" method="get">
+    <label>Runs <input name="runs" type="number" min="1" value="{{ r.runs }}"></label>
+    {% if activity == 1 %}
+    <label>ME <input name="me" type="number" min="0" max="10" value="{{ r.me }}"></label>
+    <label>TE <input name="te" type="number" min="0" max="20" value="{{ r.te }}"></label>
+    {% endif %}
+    <button>Recalculate</button>
+  </form>
+  {% if own %}<p class="muted small">You own this blueprint: ME {{ own.me }} / TE {{ own.te }}, {{ 'original' if own.runs == -1 else own.runs ~ ' runs' }}.</p>{% endif %}
+  <div class="stats">
+    <div class="stat"><span>Units</span><b>{{ r.units|num }}</b></div>
+    <div class="stat"><span>Materials</span><b>{{ r.material_cost|isk }}</b></div>
+    <div class="stat"><span>Job cost</span><b>{{ r.job_cost|isk }}</b></div>
+    <div class="stat"><span>Revenue (after fees)</span><b>{{ r.revenue|isk }}</b></div>
+    <div class="stat big"><span>Profit</span><b class="{{ 'good' if r.profit >= 0 else 'bad' }}">{{ r.profit|isk }}</b></div>
+    <div class="stat"><span>Profit/hour</span><b>{{ r.profit_per_hour|isk }}</b></div>
+  </div>
+  <table class="sortable">
+    <thead><tr><th>Material</th><th class="r">Quantity</th><th class="r">Unit price</th><th class="r">Cost</th></tr></thead>
+    <tbody>
+    {% for m in r.materials %}
+      <tr>
+        <td><img class="icon" src="https://images.evetech.net/types/{{ m.type_id }}/icon?size=32" alt="" loading="lazy"> {{ m.name }}</td>
+        <td class="r" data-v="{{ m.qty }}">{{ m.qty|num }}</td>
+        <td class="r" data-v="{{ m.price or 0 }}">{{ m.price|isk }}</td>
+        <td class="r" data-v="{{ m.cost }}">{{ m.cost|isk }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted small">Sell price {{ r.sell_price|isk }} per unit. Daily volume {{ r.volume|num }}. Build time {{ (r.seconds / 3600)|num(2) }}h before skill bonuses.</p>
+</section>
+{% endif %}
+{% endblock %}

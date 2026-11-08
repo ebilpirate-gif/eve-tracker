@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}EVE Tracker{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">◈ EVE Tracker</a>
+  <nav>
+    <a href="/" class="{{ 'on' if nav == 'dashboard' }}">Dashboard</a>
+    <a href="/assets" class="{{ 'on' if nav == 'assets' }}">Assets</a>
+    <a href="/trade" class="{{ 'on' if nav == 'trade' }}">Trading</a>
+    <a href="/orders" class="{{ 'on' if nav == 'orders' }}">Orders &amp; Wallet</a>
+    <a href="/industry" class="{{ 'on' if nav == 'industry' }}">Industry</a>
+    <a href="/settings" class="{{ 'on' if nav == 'settings' }}">Settings</a>
+    {% if password_set %}<a href="/logout">Log out</a>{% endif %}
+  </nav>
+</header>
+<main>
+{% if not sde_loaded and nav != 'login' %}
+  <div class="banner">Static game data is downloading in the background (first start only, about a minute). Market data follows. Refresh shortly.</div>
+{% endif %}
+{% if not sso_configured and nav not in ('login', 'settings') %}
+  <div class="banner">EVE SSO isn't configured yet, so you can't add characters. See <a href="/settings">Settings</a>.</div>
+{% endif %}
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>
