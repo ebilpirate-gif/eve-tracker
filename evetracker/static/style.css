@@ -53,7 +53,7 @@ h1 .icon { width: 48px; height: 48px; }
 label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
 label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }
 input, select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; min-width: 0; }
-input[type=number] { width: 130px; }
+input[type=number], input.num { width: 130px; }
 input:focus, select:focus { outline: 1px solid var(--accent); }
 button, .button { background: var(--accent); color: #1a1405; border: 0; border-radius: 6px; padding: 7px 14px; font: inherit; font-weight: 600; cursor: pointer; display: inline-block; }
 .button:hover { text-decoration: none; filter: brightness(1.1); }
@@ -78,7 +78,7 @@ code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-siz
   main { padding: 10px; }
   .stat { min-width: 130px; }
   .stat b { font-size: 17px; }
-  input[type=number] { width: 100px; }
+  input[type=number], input.num { width: 100px; }
 }
 
 /* ---------- setup wizard ---------- */

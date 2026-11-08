@@ -88,6 +88,31 @@ def render(request: Request, name: str, **ctx):
     return templates.TemplateResponse(request, name, ctx)
 
 
+_SUFFIX = {"k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12}
+
+
+def parse_num(value, default=0.0) -> float:
+    """Lenient number parsing for filter boxes: blank means the default, commas and spaces are
+    ignored, and ISK shorthand like 500k, 1.5m, 2b works. Garbage falls back to the default."""
+    if value is None:
+        return default
+    text = str(value).strip().lower().replace(",", "").replace(" ", "").replace("isk", "").rstrip("%")
+    if not text:
+        return default
+    mult = 1.0
+    if text[-1] in _SUFFIX:
+        mult = _SUFFIX[text[-1]]
+        text = text[:-1]
+    try:
+        return float(text) * mult
+    except ValueError:
+        return default
+
+
+def parse_int(value, default=0) -> int:
+    return int(parse_num(value, default))
+
+
 def back(request: Request, default="/"):
     ref = request.headers.get("referer") or default
     return RedirectResponse(ref, status_code=303)
@@ -233,7 +258,9 @@ def svg_chart(series, w=800, h=180):
 
 
 @app.get("/assets", response_class=HTMLResponse)
-def assets_page(request: Request, char: int = 0, q: str = "", min_value: float = 0):
+def assets_page(request: Request, char: str = "0", q: str = "", min_value: str = ""):
+    char = parse_int(char)
+    min_value = parse_num(min_value)
     prices = market.price_map()
     where, params = [], []
     if char:
@@ -277,8 +304,11 @@ def assets_page(request: Request, char: int = 0, q: str = "", min_value: float =
 
 @app.get("/trade", response_class=HTMLResponse)
 def trade_page(request: Request, mode: str = "station", hub: str = "jita", src: str = "jita", dst: str = "amarr",
-               haul_mode: str = "instant", min_margin: float = 5, min_volume: float = 10,
-               max_price: float = 0, max_m3: float = 0, max_investment: float = 0, min_profit: float = 0):
+               haul_mode: str = "instant", min_margin: str = "5", min_volume: str = "10",
+               max_price: str = "", max_m3: str = "", max_investment: str = "", min_profit: str = ""):
+    min_margin, min_volume = parse_num(min_margin, 5), parse_num(min_volume, 10)
+    max_price, max_m3 = parse_num(max_price), parse_num(max_m3)
+    max_investment, min_profit = parse_num(max_investment), parse_num(min_profit)
     enabled = [h for h in db.get_setting("hubs") if h in market.HUBS]
     rows = []
     if mode == "station":
@@ -296,7 +326,8 @@ def trade_page(request: Request, mode: str = "station", hub: str = "jita", src: 
 
 
 @app.get("/orders", response_class=HTMLResponse)
-def orders_page(request: Request, days: int = 30, char: int = 0):
+def orders_page(request: Request, days: str = "30", char: str = "0"):
+    days, char = max(1, parse_int(days, 30)), parse_int(char)
     orders = db.q("""SELECT o.*, t.name AS type_name, c.name AS char_name FROM orders o
                      LEFT JOIN types t ON t.type_id = o.type_id LEFT JOIN characters c ON c.character_id = o.character_id
                      ORDER BY o.is_buy, o.undercut DESC, t.name""")
@@ -311,9 +342,11 @@ def orders_page(request: Request, days: int = 30, char: int = 0):
 
 
 @app.get("/industry", response_class=HTMLResponse)
-def industry_page(request: Request, activity: int = 1, runs: int = 10, owned: int = 0, q: str = "",
-                  min_volume: float = 5, unseeded: int = 0):
-    runs = max(1, min(runs, 1000))
+def industry_page(request: Request, activity: str = "1", runs: str = "10", owned: str = "0", q: str = "",
+                  min_volume: str = "5", unseeded: str = "0"):
+    activity = industry.REACTION if parse_int(activity, 1) == industry.REACTION else industry.MANUFACTURING
+    runs = max(1, min(parse_int(runs, 10), 1000))
+    owned, unseeded, min_volume = parse_int(owned), parse_int(unseeded), parse_num(min_volume, 5)
     rows = industry.all_profitability(activity, runs, bool(owned), q, min_volume, bool(unseeded))
     jobs = db.q("""SELECT j.*, c.name AS char_name FROM industry_jobs j LEFT JOIN characters c USING (character_id)
                    WHERE j.status IN ('active', 'ready', 'paused') ORDER BY j.end_date""")
@@ -324,7 +357,9 @@ def industry_page(request: Request, activity: int = 1, runs: int = 10, owned: in
 
 
 @app.get("/industry/{bp_type_id}", response_class=HTMLResponse)
-def blueprint_page(request: Request, bp_type_id: int, runs: int = 10, me: int = -1, te: int = -1):
+def blueprint_page(request: Request, bp_type_id: int, runs: str = "10", me: str = "", te: str = ""):
+    runs = max(1, min(parse_int(runs, 10), 1000))
+    me, te = parse_int(me, -1), parse_int(te, -1)
     activity = industry.MANUFACTURING if db.q1(
         "SELECT 1 FROM bp_products WHERE type_id = ? AND activity_id = 1", (bp_type_id,)) else industry.REACTION
     own = industry.owned_blueprints().get(bp_type_id)
@@ -350,17 +385,20 @@ def settings_page(request: Request, added: int = 0):
 
 
 def _opt_float(v: str):
-    v = (v or "").strip()
-    return float(v) if v else None
+    return parse_num(v, None)
 
 
 @app.post("/settings")
 def save_settings(request: Request, sales_tax_pct: str = Form(""), broker_fee_pct: str = Form(""),
                   valuation_hub: str = Form("jita"), valuation_side: str = Form("sell"),
-                  hubs: list[str] = Form([]), hub_refresh_minutes: int = Form(30),
+                  hubs: list[str] = Form([]), hub_refresh_minutes: str = Form("30"),
                   industry_hub: str = Form("jita"), industry_system: str = Form("Jita"),
-                  industry_facility_tax_pct: float = Form(0.25), industry_structure_me_bonus_pct: float = Form(0),
-                  industry_default_me: int = Form(10), industry_material_side: str = Form("sell")):
+                  industry_facility_tax_pct: str = Form("0.25"), industry_structure_me_bonus_pct: str = Form("0"),
+                  industry_default_me: str = Form("10"), industry_material_side: str = Form("sell")):
+    hub_refresh_minutes = parse_int(hub_refresh_minutes, 30)
+    industry_facility_tax_pct = parse_num(industry_facility_tax_pct, 0.25)
+    industry_structure_me_bonus_pct = parse_num(industry_structure_me_bonus_pct, 0)
+    industry_default_me = parse_int(industry_default_me, 10)
     hubs = [h for h in hubs if h in market.HUBS] or ["jita"]
     if valuation_hub not in hubs:
         hubs.append(valuation_hub)

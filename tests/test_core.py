@@ -314,3 +314,38 @@ def test_stale_env_callback_does_not_override(monkeypatch):
     monkeypatch.setattr(config, "EVE_CLIENT_SECRET", "envsecret")
     assert sso.from_env() and sso.client_id() == "envid"
     assert sso.callback_url() == "http://raspberrypi.local:8000/callback"
+
+
+def test_parse_num():
+    from evetracker.web import parse_num
+    assert parse_num("") == 0 and parse_num("", 5) == 5 and parse_num(None, 7) == 7
+    assert parse_num("1,000,000") == 1e6
+    assert parse_num("500k") == 5e5 and parse_num("1.5m") == 1.5e6 and parse_num("2B") == 2e9
+    assert parse_num(" 10 m ") == 1e7 and parse_num("5%") == 5 and parse_num("1b isk") == 1e9
+    assert parse_num("banana", 3) == 3
+
+
+def test_blank_and_junk_filters_never_error(fake_char):
+    """Every filter form submitted with empty boxes (what browsers send) or junk must still render."""
+    blank_forms = [
+        "/assets?char=0&q=&min_value=",
+        "/assets?char=&q=&min_value=abc",
+        "/assets?min_value=10m",
+        "/trade?mode=station&hub=jita&min_margin=&max_price=&min_volume=",
+        "/trade?mode=haul&src=jita&dst=amarr&haul_mode=instant&max_m3=&max_investment=&min_profit=&min_volume=",
+        "/trade?mode=haul&max_investment=1.5b&max_m3=60,000",
+        "/industry?activity=1&q=&runs=&min_volume=",
+        "/industry?activity=junk&runs=abc&owned=&unseeded=",
+        "/industry/691?runs=&me=&te=",
+        "/orders?days=&char=",
+    ]
+    with logged_in_client() as client:
+        for url in blank_forms:
+            r = client.get(url)
+            assert r.status_code == 200, (url, r.text[:300])
+        r = client.post("/settings", data={"hubs": ["jita"], "hub_refresh_minutes": "", "industry_default_me": "",
+                                           "industry_facility_tax_pct": "", "industry_structure_me_bonus_pct": "",
+                                           "sales_tax_pct": "", "broker_fee_pct": "3.5%"}, follow_redirects=False)
+        assert r.status_code == 303
+        assert db.get_setting("broker_fee_pct") == 3.5 and db.get_setting("sales_tax_pct") is None
+        assert db.get_setting("hub_refresh_minutes") == 30

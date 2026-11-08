@@ -10,7 +10,7 @@
   {% if mode == 'station' %}
     <label>Hub <select name="hub">{% for h in enabled %}<option value="{{ h }}" {{ 'selected' if h == hub }}>{{ HUBS[h].name }}</option>{% endfor %}</select></label>
     <label>Min margin % <input name="min_margin" type="number" step="any" value="{{ min_margin }}"></label>
-    <label>Max buy price <input name="max_price" type="number" step="any" value="{{ max_price|int if max_price else '' }}" placeholder="any"></label>
+    <label>Max buy price <input name="max_price" type="text" inputmode="decimal" class="num" title="Accepts 500k, 1.5m, 2b" value="{{ max_price|int if max_price else '' }}" placeholder="any"></label>
   {% else %}
     <label>From <select name="src">{% for h in enabled %}<option value="{{ h }}" {{ 'selected' if h == src }}>{{ HUBS[h].name }}</option>{% endfor %}</select></label>
     <label>To <select name="dst">{% for h in enabled %}<option value="{{ h }}" {{ 'selected' if h == dst }}>{{ HUBS[h].name }}</option>{% endfor %}</select></label>
@@ -18,8 +18,8 @@
       <option value="instant" {{ 'selected' if haul_mode == 'instant' }}>Instant (into buy orders)</option>
       <option value="list" {{ 'selected' if haul_mode == 'list' }}>Listing sell orders</option></select></label>
     <label>Cargo m³ <input name="max_m3" type="number" step="any" value="{{ max_m3|int if max_m3 else '' }}" placeholder="any"></label>
-    <label>Max investment <input name="max_investment" type="number" step="any" value="{{ max_investment|int if max_investment else '' }}" placeholder="any"></label>
-    <label>Min profit/unit <input name="min_profit" type="number" step="any" value="{{ min_profit }}"></label>
+    <label>Max investment <input name="max_investment" type="text" inputmode="decimal" class="num" title="Accepts 500k, 1.5m, 2b" value="{{ max_investment|int if max_investment else '' }}" placeholder="e.g. 500m"></label>
+    <label>Min profit/unit <input name="min_profit" type="text" inputmode="decimal" class="num" title="Accepts 500k, 1.5m, 2b" value="{{ min_profit }}"></label>
   {% endif %}
   <label>Min daily volume <input name="min_volume" type="number" step="any" value="{{ min_volume }}"></label>
   <button>Search</button>
