@@ -695,3 +695,14 @@ def test_health_and_maintenance(fake_char):
     msg = asyncio.run(Worker.job_maintenance(Worker.__new__(Worker)))
     assert "removed 1 stale cache" in msg
     assert db.val("SELECT COUNT(*) FROM esi_cache WHERE key = 'fresh'") == 1
+
+
+def test_icon_urls_for_blueprints():
+    from evetracker import sde
+    db.ex("INSERT OR REPLACE INTO groups_ VALUES (105, 9, 'Frigate Blueprint'), (25, 6, 'Frigate')")
+    db.ex("INSERT OR REPLACE INTO types (type_id, group_id, name, published) VALUES (691, 105, 'Rifter Blueprint', 1)")
+    db.ex("UPDATE types SET group_id = 25 WHERE type_id = 587")
+    sde._bp_cache["at"] = 0
+    assert sde.icon_url(587) == "https://images.evetech.net/types/587/icon?size=32"
+    assert sde.icon_url(691) == "https://images.evetech.net/types/691/bp?size=32"
+    assert sde.icon_url(691, 32, bpc=True) == "https://images.evetech.net/types/691/bpc?size=32"

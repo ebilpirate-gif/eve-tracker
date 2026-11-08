@@ -10,7 +10,7 @@
     {% for j in jobs %}
       {% set done = j.status == 'ready' or (j.status == 'active' and j.end_date <= now_iso) %}
       <tr>
-        <td><img class="icon" src="https://images.evetech.net/types/{{ j.blueprint_type_id }}/bp?size=32" alt="" loading="lazy"> {{ type_name(j.blueprint_type_id) }}</td>
+        <td><img class="icon" src="{{ icon(j.blueprint_type_id, 32) }}" alt="" loading="lazy"> {{ type_name(j.blueprint_type_id) }}</td>
         <td>{{ ACTIVITY_NAMES.get(j.activity_id, j.activity_id) }}</td>
         <td class="r">{{ j.runs }}</td>
         <td>{% if done %}<span class="tag good">ready</span>{% else %}{{ j.status }}{% endif %}</td>
@@ -48,7 +48,7 @@
     <tbody>
     {% for r in rows %}
       <tr>
-        <td><img class="icon" src="https://images.evetech.net/types/{{ r.product_id }}/icon?size=32" alt="" loading="lazy">
+        <td><img class="icon" src="{{ icon(r.product_id, 32) }}" alt="" loading="lazy">
           <a href="/industry/{{ r.bp_type_id }}?runs={{ runs }}">{{ r.product_name }}</a> {{ ui.eve(r.product_id) }}{% if r.owned %} <span class="tag good">owned</span>{% endif %}</td>
         <td class="r">{{ r.me }}/{{ r.te }}</td>
         <td class="r" data-v="{{ r.material_cost }}">{{ r.material_cost|isk }}</td>

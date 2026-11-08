@@ -79,6 +79,9 @@ templates.env.globals["location_name"] = sde.location_name
 templates.env.globals["HUBS"] = market.HUBS
 templates.env.globals["ACTIVITY_NAMES"] = industry.ACTIVITY_NAMES
 templates.env.globals["entity_name"] = contracts.name
+templates.env.globals["icon"] = sde.icon_url
+# Changes whenever the CSS/JS change, so browsers fetch the new version after an update.
+templates.env.globals["asset_v"] = str(int(max((HERE / "static" / f).stat().st_mtime for f in ("app.js", "style.css"))))
 
 
 def render(request: Request, name: str, **ctx):

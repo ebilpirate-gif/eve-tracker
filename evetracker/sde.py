@@ -115,3 +115,20 @@ def location_name(location_id: int) -> str:
 
 def system_by_name(name: str):
     return db.q1("SELECT * FROM systems WHERE name = ? COLLATE NOCASE", (name,))
+
+
+_bp_cache = {"at": 0.0, "ids": frozenset()}
+
+
+def blueprint_type_ids() -> frozenset:
+    """Type ids in the Blueprint category (their pictures live at /bp and /bpc, not /icon)."""
+    if time.time() - _bp_cache["at"] > 3600:
+        _bp_cache["ids"] = frozenset(r[0] for r in db.q(
+            "SELECT t.type_id FROM types t JOIN groups_ g ON g.group_id = t.group_id WHERE g.category_id = 9"))
+        _bp_cache["at"] = time.time()
+    return _bp_cache["ids"]
+
+
+def icon_url(type_id, size: int = 32, bpc: bool = False) -> str:
+    variation = ("bpc" if bpc else "bp") if type_id in blueprint_type_ids() else "icon"
+    return f"https://images.evetech.net/types/{type_id}/{variation}?size={size}"

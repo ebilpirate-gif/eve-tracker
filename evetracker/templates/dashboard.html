@@ -71,7 +71,7 @@
     <tbody>
     {% for st in structures %}
       <tr class="{{ 'row-bad' if st.danger or st.low_power or st.fuel_low }}">
-        <td><img class="icon" src="https://images.evetech.net/types/{{ st.type_id }}/icon?size=32" alt="" loading="lazy"> {{ st.name }}
+        <td><img class="icon" src="{{ icon(st.type_id, 32) }}" alt="" loading="lazy"> {{ st.name }}
           {% if ui_enabled %}<button type="button" class="eve-btn" data-waypoint="{{ st.structure_id }}" title="Set destination in EVE">⌖</button>{% endif %}</td>
         <td>{{ location_name(st.system_id)|replace(' (in space)', '') }}</td>
         <td>{% if st.danger %}<span class="tag bad">{{ st.state_label }}</span>{% if st.state_timer_end %} <span class="muted small">until {{ st.state_timer_end|ago }}</span>{% endif %}

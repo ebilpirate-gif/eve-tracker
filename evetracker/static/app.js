@@ -30,10 +30,16 @@ document.addEventListener("submit", (e) => {
   if (msg && !confirm(msg)) e.preventDefault();
 });
 
-// Hide item icons that fail to load (e.g. image server unreachable) instead of showing broken images.
-document.addEventListener("error", (e) => {
-  if (e.target.tagName === "IMG") e.target.style.visibility = "hidden";
-}, true);
+// Broken item icons are swapped for a placeholder by the inline script in base.html; this also
+// catches any that failed before that listener existed.
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("img").forEach((img) => {
+    if (img.complete && img.naturalWidth === 0 && window.EVE_PLACEHOLDER && img.src !== window.EVE_PLACEHOLDER) {
+      img.src = window.EVE_PLACEHOLDER;
+      img.classList.add("noimg");
+    }
+  });
+});
 
 // Copy buttons: <button data-copy="element-id">. navigator.clipboard only works on https or
 // localhost, and the app is usually opened at http://<pi-ip>, so fall back to execCommand.

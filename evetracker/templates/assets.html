@@ -25,7 +25,7 @@
     <tbody>
     {% for i in loc["items"][:500] %}
       <tr>
-        <td><img class="icon" src="https://images.evetech.net/types/{{ i.type_id }}/icon?size=32" alt="" loading="lazy"> {{ i.name }} {{ ui.eve(i.type_id) }}
+        <td><img class="icon" src="{{ icon(i.type_id, 32, i.bpc) }}" alt="" loading="lazy"> {{ i.name }} {{ ui.eve(i.type_id) }}
           {% if i.label %}<span class="tag">“{{ i.label }}”</span>{% endif %}{% if i.bpc %}<span class="tag">BPC</span>{% endif %}</td>
         <td class="r" data-v="{{ i.qty }}">{{ i.qty|num }}</td>
         <td class="r" data-v="{{ i.unit }}">{{ i.unit|isk }}</td>

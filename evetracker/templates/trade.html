@@ -39,7 +39,7 @@
     <tbody>
     {% for r in rows %}
       <tr>
-        <td><img class="icon" src="https://images.evetech.net/types/{{ r.type_id }}/icon?size=32" alt="" loading="lazy"> {{ r.name }} {{ ui.eve(r.type_id) }}</td>
+        <td><img class="icon" src="{{ icon(r.type_id, 32) }}" alt="" loading="lazy"> {{ r.name }} {{ ui.eve(r.type_id) }}</td>
         <td class="r" data-v="{{ r.buy }}">{{ r.buy|isk }}</td>
         <td class="r" data-v="{{ r.sell }}">{{ r.sell|isk }}</td>
         <td class="r good" data-v="{{ r.profit }}">{{ r.profit|isk }}</td>
@@ -60,7 +60,7 @@
     <tbody>
     {% for r in rows %}
       <tr>
-        <td><img class="icon" src="https://images.evetech.net/types/{{ r.type_id }}/icon?size=32" alt="" loading="lazy"> {{ r.name }} {{ ui.eve(r.type_id) }}</td>
+        <td><img class="icon" src="{{ icon(r.type_id, 32) }}" alt="" loading="lazy"> {{ r.name }} {{ ui.eve(r.type_id) }}</td>
         <td class="r" data-v="{{ r.buy }}">{{ r.buy|isk }}</td>
         <td class="r" data-v="{{ r.sell }}">{{ r.sell|isk }}</td>
         <td class="r good" data-v="{{ r.profit }}">{{ r.profit|isk }}</td>

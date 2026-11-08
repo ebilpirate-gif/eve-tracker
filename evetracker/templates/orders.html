@@ -16,7 +16,7 @@
     <tbody>
     {% for o in orders %}
       <tr class="{{ 'row-bad' if o.undercut }}">
-        <td><img class="icon" src="https://images.evetech.net/types/{{ o.type_id }}/icon?size=32" alt="" loading="lazy"> {{ o.type_name }} {{ ui.eve(o.type_id) }}</td>
+        <td><img class="icon" src="{{ icon(o.type_id, 32) }}" alt="" loading="lazy"> {{ o.type_name }} {{ ui.eve(o.type_id) }}</td>
         <td>{{ 'Buy' if o.is_buy else 'Sell' }}</td>
         <td class="r" data-v="{{ o.price }}">{{ o.price|isk }}</td>
         <td class="r" data-v="{{ o.competitor_price or 0 }}">{{ o.competitor_price|isk }}</td>
