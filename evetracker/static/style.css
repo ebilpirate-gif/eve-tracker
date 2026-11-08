@@ -80,3 +80,24 @@ code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-siz
   .stat b { font-size: 17px; }
   input[type=number] { width: 100px; }
 }
+
+/* ---------- setup wizard ---------- */
+.setup { max-width: 760px; margin: 0 auto; }
+.steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0 0 16px; counter-reset: step; flex-wrap: wrap; }
+.steps li { counter-increment: step; color: var(--muted); padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
+.steps li::before { content: counter(step) ". "; }
+.steps li.on { color: var(--accent); border-color: var(--accent); }
+.steps li.done { color: var(--good); border-color: #1f5c43; }
+.steps li.done::before { content: "✓ "; }
+.howto { padding-left: 20px; }
+.howto > li { margin-bottom: 12px; }
+.copybox { display: flex; align-items: center; gap: 8px; margin-top: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.copybox code { background: none; padding: 0; font-size: 13px; word-break: break-all; flex: 1; }
+.scopes { margin: 6px 0; padding-left: 18px; columns: 2; }
+.scopes code { font-size: 12px; }
+button.linkish { padding: 0 6px; }
+form.stack { display: flex; flex-direction: column; gap: 12px; max-width: 420px; }
+form.stack input { width: 100%; }
+.bad-banner { background: #2a1414; border-color: #6b2b2b; color: #ffb3b3; }
+.good-banner { background: #10261d; border: 1px solid #1f5c43; color: #9ff0c8; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; }
+@media (max-width: 640px) { .scopes { columns: 1; } }

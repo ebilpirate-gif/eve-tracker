@@ -31,18 +31,49 @@ class NeedsReauth(Exception):
 _locks: dict[int, asyncio.Lock] = {}
 
 
+# ---------- EVE application credentials (setup wizard / Settings, or .env which wins) ----------
+
+def from_env() -> bool:
+    """The .env file only takes over when it actually contains a Client ID (an old .env with
+    just a leftover callback URL must not override what was entered in the web UI)."""
+    return bool(config.EVE_CLIENT_ID)
+
+
+def client_id() -> str:
+    return config.EVE_CLIENT_ID if from_env() else (db.get_kv("eve_client_id", "") or "")
+
+
+def client_secret() -> str:
+    return config.EVE_CLIENT_SECRET if from_env() else (db.get_kv("eve_client_secret", "") or "")
+
+
+def callback_url() -> str:
+    return config.EVE_CALLBACK_URL if from_env() else (db.get_kv("eve_callback_url", "") or "")
+
+
+def configured() -> bool:
+    return bool(client_id() and client_secret() and callback_url())
+
+
+def save_app(cid: str, secret: str, callback: str) -> None:
+    db.set_kv("eve_client_id", cid.strip())
+    if secret.strip():  # blank = keep the existing secret
+        db.set_kv("eve_client_secret", secret.strip())
+    db.set_kv("eve_callback_url", callback.strip())
+
+
 def authorize_url(state: str) -> str:
     return AUTH_URL + "?" + urlencode({
         "response_type": "code",
-        "redirect_uri": config.EVE_CALLBACK_URL,
-        "client_id": config.EVE_CLIENT_ID,
+        "redirect_uri": callback_url(),
+        "client_id": client_id(),
         "scope": " ".join(SCOPES),
         "state": state,
     })
 
 
 def _basic_auth() -> str:
-    raw = f"{config.EVE_CLIENT_ID}:{config.EVE_CLIENT_SECRET}".encode()
+    raw = f"{client_id()}:{client_secret()}".encode()
     return "Basic " + base64.b64encode(raw).decode()
 
 

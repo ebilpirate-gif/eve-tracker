@@ -1,18 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
+{% if msg %}<p class="good-banner">{{ msg }}</p>{% endif %}
+{% if err %}<p class="banner bad-banner">{{ err }}</p>{% endif %}
 <section class="card">
   <h2>Characters</h2>
   {% if added %}<p class="good">Character added. The first sync is running now.</p>{% endif %}
   {% if not sso_configured %}
-  <div class="banner">
-    <p><b>Set up EVE SSO to add characters:</b></p>
-    <ol>
-      <li>Go to <a href="https://developers.eveonline.com/applications" target="_blank" rel="noopener">developers.eveonline.com/applications</a> and create an application.</li>
-      <li>Callback URL: <code>{{ callback_url }}</code></li>
-      <li>Scopes: {% for s in scopes %}<code>{{ s }}</code> {% endfor %}</li>
-      <li>Put the Client ID and Secret into the <code>.env</code> file as <code>EVE_CLIENT_ID</code> / <code>EVE_CLIENT_SECRET</code> and restart the service.</li>
-    </ol>
-  </div>
+  <p class="banner">Connect your EVE application below (or use the <a href="/setup">setup wizard</a>) before adding characters.</p>
   {% else %}
   <p><a class="button" href="/sso/login">+ Add character</a> <span class="muted small">Log in with each character (alts too). Log in again on an existing character to refresh its permissions.</span></p>
   {% endif %}
@@ -31,6 +25,37 @@
     </tbody>
   </table>
   <form class="inline" method="post" action="/jobs/characters-force"><button class="small">Sync all characters now</button></form>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>EVE application</h2>
+  {% if sso_from_env %}
+    <p class="muted">Set in the <code>.env</code> file on the Pi (Client ID <code>{{ client_id }}</code>, callback <code>{{ callback_url }}</code>). Remove those lines from <code>.env</code> to manage it here instead.</p>
+  {% else %}
+  <p class="muted small">From <a href="https://developers.eveonline.com/applications" target="_blank" rel="noopener">developers.eveonline.com/applications</a>. The callback URL must match the one in your EVE application exactly. Opened from this browser, it would be <code>{{ suggested_callback }}</code>.</p>
+  <form method="post" action="/setup/eve" class="stack">
+    <label>Client ID <input name="client_id" value="{{ client_id }}" required autocomplete="off" spellcheck="false"></label>
+    <label>Secret Key <input type="password" name="client_secret" autocomplete="off" placeholder="{{ 'saved (leave blank to keep)' if has_secret else '' }}" {{ '' if has_secret else 'required' }}></label>
+    <label>Callback URL <input name="callback_url" value="{{ callback_url or suggested_callback }}" required spellcheck="false"></label>
+    <input type="hidden" name="next" value="/settings">
+    <button>Save EVE application</button>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Password</h2>
+  {% if password_from_env %}
+    <p class="muted">Set by <code>APP_PASSWORD</code> in the <code>.env</code> file on the Pi; change it there.</p>
+  {% else %}
+  <form method="post" action="/settings/password" class="stack">
+    <label>Current password <input type="password" name="current" required autocomplete="current-password"></label>
+    <label>New password <input type="password" name="password" required minlength="6" autocomplete="new-password"></label>
+    <label>New password again <input type="password" name="confirm" required minlength="6" autocomplete="new-password"></label>
+    <button>Change password</button>
+  </form>
+  <p class="muted small">Changing it logs out every other browser.</p>
   {% endif %}
 </section>
 

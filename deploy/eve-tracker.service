@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=__USER__
 WorkingDirectory=__DIR__
-EnvironmentFile=__DIR__/.env
+EnvironmentFile=-__DIR__/.env
 # Fewer malloc arenas = much less memory fragmentation on small Pis.
 Environment=MALLOC_ARENA_MAX=2
 # Single worker on purpose: the background sync runs inside the web process.

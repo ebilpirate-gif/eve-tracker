@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Set up EVE Tracker{% endblock %}
+{% block content %}
+<div class="setup">
+  <h1>Set up EVE Tracker</h1>
+  <ol class="steps">
+    <li class="{{ 'on' if step == 'password' else 'done' }}">Password</li>
+    <li class="{{ 'on' if step == 'eve' else ('done' if step == 'character' else '') }}">EVE application</li>
+    <li class="{{ 'on' if step == 'character' }}">Add a character</li>
+  </ol>
+
+  {% if error %}<p class="banner bad-banner">{{ error }}</p>{% endif %}
+
+  {% if step == 'password' %}
+  <section class="card">
+    <h2>1. Choose a password</h2>
+    <p>This protects the app, since your wallets and assets will be visible in it. You'll type it when you open the app on a new device.</p>
+    <form method="post" action="/setup/password" class="stack">
+      <label>Password <input type="password" name="password" minlength="{{ min_length }}" required autofocus autocomplete="new-password"></label>
+      <label>Same again <input type="password" name="confirm" minlength="{{ min_length }}" required autocomplete="new-password"></label>
+      <button>Save and continue</button>
+    </form>
+  </section>
+
+  {% elif step == 'eve' %}
+  <section class="card">
+    <h2>2. Connect your EVE application</h2>
+    <p>CCP requires each tool like this to have its own "application" so you can log in with EVE Online. It's free and takes a couple of minutes.</p>
+    <ol class="howto">
+      <li>Open <a href="https://developers.eveonline.com/applications" target="_blank" rel="noopener">developers.eveonline.com/applications</a> (opens in a new tab), log in with your EVE account, and create a new application.</li>
+      <li>Give it any name and description, e.g. <i>My EVE Tracker</i>.</li>
+      <li>Under <b>Connection type</b>, choose <b>Authentication &amp; API Access</b>.</li>
+      <li>Add these <b>permissions (scopes)</b>. All are read-only; the app can never move items or ISK.
+        <ul class="scopes">{% for s in scopes %}<li><code>{{ s }}</code></li>{% endfor %}</ul>
+        <p class="muted small">If the site lets you search the scope list, type each name in. If it accepts a pasted list, <button type="button" class="small linkish" data-copy="scopes">copy all</button>.</p>
+        <code id="scopes" hidden>{{ scopes|join(' ') }}</code>
+      </li>
+      <li>Set the <b>Callback URL</b> to:
+        <div class="copybox"><code id="cb">{{ suggested_callback }}</code><button type="button" class="small" data-copy="cb">Copy</button></div>
+        <p class="muted small">This is the address you're using right now. Keep using this same address to open the app, because EVE login always comes back here. Give the Pi a fixed IP in your router (a "DHCP reservation") so it doesn't change.</p>
+      </li>
+      <li>Create the application, then open its details and copy the <b>Client ID</b> and <b>Secret Key</b> into the form below.</li>
+    </ol>
+    {% if sso_from_env %}
+      <p class="banner">EVE settings are set in the <code>.env</code> file on the Pi, so they can't be edited here.</p>
+    {% else %}
+    <form method="post" action="/setup/eve" class="stack">
+      <label>Client ID <input name="client_id" value="{{ client_id }}" required autocomplete="off" spellcheck="false"></label>
+      <label>Secret Key <input type="password" name="client_secret" required autocomplete="off" spellcheck="false"></label>
+      <label>Callback URL <input name="callback_url" value="{{ callback_url or suggested_callback }}" required spellcheck="false">
+        <span class="muted small">Must match the application's callback URL exactly.</span></label>
+      <input type="hidden" name="next" value="/setup">
+      <button>Save and continue</button>
+    </form>
+    {% endif %}
+  </section>
+
+  {% elif step == 'character' %}
+  <section class="card">
+    <h2>3. Add your first character</h2>
+    {% if mismatch %}
+    <p class="banner">You're browsing at <code>{{ request.headers.get('host') }}</code> but the callback is set to <code>{{ callback_url }}</code>. After you log in, EVE will send you to the callback address, so open the app there instead or fix the callback in <a href="/settings">Settings</a>.</p>
+    {% endif %}
+    <p>You'll be sent to EVE Online's login page. Pick a character and approve the permissions, and you'll come straight back here. Add your other characters and alts the same way afterwards from <b>Settings</b>.</p>
+    <p><a class="button" href="/sso/login">Log in with EVE Online</a></p>
+    <p class="muted small">Market data is downloading in the background meanwhile; the first load takes 10–20 minutes on a Raspberry Pi 3.</p>
+    <p class="muted small">If EVE shows an error about the callback or redirect URL, the Callback URL here and in your EVE application don't match. <a href="/settings">Fix it in Settings</a>.</p>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

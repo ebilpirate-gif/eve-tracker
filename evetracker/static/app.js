@@ -34,3 +34,31 @@ document.addEventListener("submit", (e) => {
 document.addEventListener("error", (e) => {
   if (e.target.tagName === "IMG") e.target.style.visibility = "hidden";
 }, true);
+
+// Copy buttons: <button data-copy="element-id">. navigator.clipboard only works on https or
+// localhost, and the app is usually opened at http://<pi-ip>, so fall back to execCommand.
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-copy]");
+  if (!btn) return;
+  const text = document.getElementById(btn.dataset.copy).textContent.trim();
+  let ok = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    }
+  } catch (_) {}
+  if (!ok) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { ok = document.execCommand("copy"); } catch (_) {}
+    ta.remove();
+  }
+  const label = btn.textContent;
+  btn.textContent = ok ? "Copied ✓" : "Select & copy manually";
+  setTimeout(() => (btn.textContent = label), 1800);
+});

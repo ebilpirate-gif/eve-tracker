@@ -7,6 +7,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -14,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import config, db, industry, market, pnl, sde, sso, sync
+from . import auth, config, db, industry, market, pnl, sde, sso, sync
 from .worker import Worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -81,9 +82,9 @@ templates.env.globals["ACTIVITY_NAMES"] = industry.ACTIVITY_NAMES
 
 def render(request: Request, name: str, **ctx):
     ctx.setdefault("nav", name.split(".")[0])
-    ctx["sso_configured"] = config.SSO_CONFIGURED
+    ctx["sso_configured"] = sso.configured()
     ctx["sde_loaded"] = sde.is_loaded()
-    ctx["password_set"] = bool(config.APP_PASSWORD)
+    ctx["password_set"] = auth.password_set()
     return templates.TemplateResponse(request, name, ctx)
 
 
@@ -92,17 +93,22 @@ def back(request: Request, default="/"):
     return RedirectResponse(ref, status_code=303)
 
 
-# ---------- auth (optional app password) ----------
+# ---------- auth ----------
 
 OPEN_PATHS = ("/login", "/static/", "/healthz")
 
 
 @app.middleware("http")
 async def require_password(request: Request, call_next):
-    if config.APP_PASSWORD and not request.url.path.startswith(OPEN_PATHS):
-        if not request.session.get("authed"):
+    path = request.url.path
+    if not path.startswith(OPEN_PATHS):
+        if not auth.password_set():
+            # Brand-new install: everything leads to the setup wizard until a password exists.
+            if not path.startswith("/setup"):
+                return RedirectResponse("/setup", status_code=303)
+        elif request.session.get("authed") != auth.session_token():
             return RedirectResponse("/login", status_code=303)
-    if request.method == "POST" and not request.url.path.startswith("/login"):
+    if request.method == "POST":
         # Same-origin check for form posts (CSRF protection).
         origin = request.headers.get("origin")
         if origin and origin.split("://", 1)[-1] != request.headers.get("host"):
@@ -115,13 +121,15 @@ app.add_middleware(SessionMiddleware, secret_key=config.SECRET_KEY, max_age=30 *
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
+    if not auth.password_set():
+        return RedirectResponse("/setup", status_code=303)
     return render(request, "login.html", error=None)
 
 
 @app.post("/login")
 def login(request: Request, password: str = Form(...)):
-    if config.APP_PASSWORD and hmac.compare_digest(password, config.APP_PASSWORD):
-        request.session["authed"] = True
+    if auth.check_password(password):
+        request.session["authed"] = auth.session_token()
         return RedirectResponse("/", status_code=303)
     time.sleep(1)
     return render(request, "login.html", error="Wrong password")
@@ -142,8 +150,8 @@ def healthz():
 
 @app.get("/sso/login")
 def sso_login(request: Request):
-    if not config.SSO_CONFIGURED:
-        return RedirectResponse("/settings", status_code=303)
+    if not sso.configured():
+        return RedirectResponse("/setup", status_code=303)
     state = secrets.token_urlsafe(24)
     request.session["sso_state"] = state
     return RedirectResponse(sso.authorize_url(state), status_code=303)
@@ -334,7 +342,10 @@ def settings_page(request: Request, added: int = 0):
     jobs = db.q("SELECT * FROM job_log ORDER BY job")
     steps = db.q("SELECT s.*, c.name FROM sync_state s JOIN characters c USING (character_id) ORDER BY c.name, s.step")
     return render(request, "settings.html", settings=settings, chars=characters(), jobs=jobs, steps=steps,
-                  fees=market.fees(), added=added, callback_url=config.EVE_CALLBACK_URL, scopes=sso.SCOPES,
+                  fees=market.fees(), added=added, callback_url=sso.callback_url(), scopes=sso.SCOPES,
+                  client_id=sso.client_id(), has_secret=bool(sso.client_secret()), sso_from_env=sso.from_env(),
+                  password_from_env=auth.from_env(), suggested_callback=suggested_callback(request),
+                  msg=request.query_params.get("msg"), err=request.query_params.get("err"),
                   running=request.app.state.worker.running)
 
 
@@ -367,3 +378,87 @@ def save_settings(request: Request, sales_tax_pct: str = Form(""), broker_fee_pc
     for k, v in values.items():
         db.set_setting(k, v)
     return RedirectResponse("/settings", status_code=303)
+
+
+# ---------- setup wizard ----------
+
+def suggested_callback(request: Request) -> str:
+    """The callback URL matching how the browser is reaching the app right now."""
+    return str(request.base_url).rstrip("/") + "/callback"
+
+
+def setup_step() -> str:
+    if not auth.password_set():
+        return "password"
+    if not sso.configured():
+        return "eve"
+    if not db.val("SELECT COUNT(*) FROM characters", default=0):
+        return "character"
+    return "done"
+
+
+def _callback_problem(callback: str) -> str | None:
+    if not callback.startswith(("http://", "https://")) or not callback.rstrip("/").endswith("/callback"):
+        return "The callback URL should look like http://192.168.0.10:8000/callback"
+    return None
+
+
+@app.get("/setup", response_class=HTMLResponse)
+def setup_page(request: Request, error: str = ""):
+    step = setup_step()
+    if step == "done":
+        return RedirectResponse("/", status_code=303)
+    from urllib.parse import urlsplit
+    callback = sso.callback_url()
+    mismatch = bool(callback) and urlsplit(callback).netloc != request.headers.get("host")
+    return render(request, "setup.html", nav="setup", step=step, error=error, scopes=sso.SCOPES,
+                  suggested_callback=suggested_callback(request), callback_url=callback, mismatch=mismatch,
+                  client_id=sso.client_id(), sso_from_env=sso.from_env(), min_length=auth.MIN_LENGTH)
+
+
+@app.post("/setup/password")
+def setup_password(request: Request, password: str = Form(...), confirm: str = Form(...)):
+    if auth.password_set():
+        return JSONResponse({"error": "a password is already set"}, status_code=403)
+    problem = auth.validate_new(password, confirm)
+    if problem:
+        return setup_page(request, error=problem)
+    auth.set_password(password)
+    request.session["authed"] = auth.session_token()
+    return RedirectResponse("/setup", status_code=303)
+
+
+@app.post("/setup/eve")
+def setup_eve(request: Request, client_id: str = Form(...), client_secret: str = Form(""),
+              callback_url: str = Form(...), next: str = Form("/setup")):
+    target = next if next in ("/setup", "/settings") else "/setup"
+    if sso.from_env():
+        return RedirectResponse(target, status_code=303)
+    problem = _callback_problem(callback_url.strip())
+    if not problem and not client_id.strip():
+        problem = "Paste the Client ID from your EVE application."
+    if not problem and not (client_secret.strip() or sso.client_secret()):
+        problem = "Paste the Secret Key from your EVE application."
+    if problem:
+        if target == "/settings":
+            return RedirectResponse("/settings?err=" + quote(problem), status_code=303)
+        return setup_page(request, error=problem)
+    sso.save_app(client_id, client_secret, callback_url)
+    if target == "/settings":
+        return RedirectResponse("/settings?msg=" + quote("EVE application saved."), status_code=303)
+    return RedirectResponse(target, status_code=303)
+
+
+@app.post("/settings/password")
+def change_password(request: Request, current: str = Form(...), password: str = Form(...), confirm: str = Form(...)):
+    if auth.from_env():
+        return RedirectResponse("/settings?err=" + quote("The password is set in .env; change it there."), status_code=303)
+    if not auth.check_password(current):
+        time.sleep(1)
+        return RedirectResponse("/settings?err=" + quote("Current password is wrong."), status_code=303)
+    problem = auth.validate_new(password, confirm)
+    if problem:
+        return RedirectResponse("/settings?err=" + quote(problem), status_code=303)
+    auth.set_password(password)
+    request.session["authed"] = auth.session_token()  # other browsers are logged out
+    return RedirectResponse("/settings?msg=" + quote("Password changed."), status_code=303)

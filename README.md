@@ -31,33 +31,28 @@ It's a single Python process (FastAPI + SQLite) with a built-in background sched
 - Python 3.10+ (Bookworm ships 3.11).
 - Roughly 300 MB of disk for the database.
 
-## 1. Register an EVE application
+## Install on the Pi
 
-1. Go to <https://developers.eveonline.com/applications> and log in.
-2. Create a new application with **Authentication & API Access**.
-3. **Callback URL:** the address you'll open the app at, plus `/callback`, e.g. `http://raspberrypi.local:8000/callback`. It must match `EVE_CALLBACK_URL` in `.env` exactly.
-4. **Scopes:**
-   - `esi-assets.read_assets.v1`
-   - `esi-wallet.read_character_wallet.v1`
-   - `esi-markets.read_character_orders.v1`
-   - `esi-markets.structure_markets.v1`
-   - `esi-universe.read_structures.v1`
-   - `esi-industry.read_character_jobs.v1`
-   - `esi-characters.read_blueprints.v1`
-   - `esi-skills.read_skills.v1`
-5. Copy the **Client ID** and **Secret Key**.
-
-## 2. Install on the Pi
+SSH into the Pi and run:
 
 ```bash
+sudo apt install -y git python3-venv
 git clone https://github.com/ebilpirate-gif/eve-tracker.git
 cd eve-tracker
-./deploy/install.sh        # creates .env on the first run
-nano .env                  # fill in EVE_CLIENT_ID, EVE_CLIENT_SECRET, EVE_CALLBACK_URL, APP_PASSWORD
-./deploy/install.sh        # installs and starts the systemd service
+./deploy/install.sh
 ```
 
-Open `http://raspberrypi.local:8000` (or the Pi's IP address) from any device on your network. On first start it downloads the static game data (about a minute) and then the market data (a few minutes on a Pi). Go to **Settings → Add character** and log in with each of your characters.
+The installer sets everything up as a service that starts on boot, then prints the address to open, e.g. `http://192.168.0.132:8000`. Open it in a browser on any device on your network and the **setup wizard** walks you through:
+
+1. **Choosing a password** for the web UI.
+2. **Connecting an EVE application.** CCP requires every tool like this to have its own (free) application at <https://developers.eveonline.com/applications>. The wizard shows the exact callback URL and permissions to enter, with copy buttons, and you paste the Client ID and Secret Key back into it.
+3. **Adding your characters** via EVE's normal login page.
+
+![Setup wizard](screenshots/setup-2-eve.png)
+
+The first data download takes 10–20 minutes on a Pi 3. Everything can be changed later under **Settings**: characters, EVE application, password, hubs, fees and industry options.
+
+Tip: give the Pi a fixed IP in your router ("DHCP reservation"). EVE's login always returns to the callback address you registered, so it mustn't change.
 
 Useful commands:
 
@@ -66,13 +61,14 @@ journalctl -u eve-tracker -f      # live logs
 sudo systemctl restart eve-tracker
 ```
 
-To update: `git pull && ./deploy/install.sh`.
+To update: `cd ~/eve-tracker && git pull && ./deploy/install.sh`.
+
+An optional `.env` file (see `.env.example`) can override the web settings, e.g. for scripted installs.
 
 ### Running without systemd (development)
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env   # set EVE_CALLBACK_URL=http://localhost:8000/callback
 .venv/bin/uvicorn evetracker.web:app --port 8000
 ```
 
@@ -80,7 +76,7 @@ Run the tests with `.venv/bin/pip install pytest && .venv/bin/python -m pytest t
 
 ## Security notes
 
-- **Set `APP_PASSWORD`.** Without it, anyone on your network can see your wallets and assets.
+- The setup wizard requires a password before anything else. Until one is chosen, whoever opens the app first can set it, so finish setup right after installing.
 - Don't port-forward the app to the internet. For access away from home, use a VPN such as Tailscale or WireGuard.
 - Your EVE refresh tokens live in `data/evetracker.db`. The app can only *read* data (every scope is read-only), but keep the file private. Removing a character in Settings deletes its tokens and data, and you can revoke access at any time at <https://community.eveonline.com/support/third-party-applications/>.
 

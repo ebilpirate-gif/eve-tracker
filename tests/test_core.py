@@ -178,10 +178,28 @@ def test_sync_character_end_to_end(fake_char):
     assert totals["broker_fees"] == pytest.approx(15.0)
 
 
-def test_pages_render(fake_char):
+def reset_setup():
+    for k in ("app_password", "eve_client_id", "eve_client_secret", "eve_callback_url"):
+        db.ex("DELETE FROM kv WHERE key = ?", (k,))
+
+
+def logged_in_client():
+    """A TestClient for an app that has finished setup, already logged in."""
     from fastapi.testclient import TestClient
+    from evetracker import auth, sso
     from evetracker.web import app
-    with TestClient(app) as client:
+    reset_setup()
+    auth.set_password("correct horse")
+    sso.save_app("abc123", "s3cret", "http://testserver/callback")
+    client = TestClient(app)
+    client.__enter__()
+    r = client.post("/login", data={"password": "correct horse"}, follow_redirects=False)
+    assert r.status_code == 303
+    return client
+
+
+def test_pages_render(fake_char):
+    with logged_in_client() as client:
         for path in ["/", "/assets", "/assets?q=rif", "/trade", "/trade?mode=haul", "/orders", "/orders?days=7",
                      "/industry", "/industry?activity=11", "/industry/691", "/settings", "/healthz"]:
             r = client.get(path)
@@ -211,3 +229,88 @@ def test_app_password(monkeypatch):
         r = client.post("/login", data={"password": "hunter2"}, follow_redirects=False)
         assert r.status_code == 303
         assert client.get("/assets").status_code == 200
+
+
+def test_setup_wizard(fake_char):
+    from fastapi.testclient import TestClient
+    from evetracker import auth, sso
+    from evetracker.web import app
+    reset_setup()
+    db.ex("DELETE FROM characters")
+    with TestClient(app) as client:
+        # a fresh install sends everything to the wizard
+        for path in ("/", "/settings", "/login"):
+            r = client.get(path, follow_redirects=False)
+            assert r.status_code == 303 and r.headers["location"] == "/setup", path
+        assert "Choose a password" in client.get("/setup").text
+        assert "match" in client.post("/setup/password", data={"password": "abcdef", "confirm": "abcdeX"}).text
+        assert "at least" in client.post("/setup/password", data={"password": "abc", "confirm": "abc"}).text
+        r = client.post("/setup/password", data={"password": "abcdef", "confirm": "abcdef"}, follow_redirects=False)
+        assert r.status_code == 303 and auth.password_set()
+        assert db.get_kv("app_password") != "abcdef"  # stored hashed
+        # step 2: the callback URL is suggested from the address we're browsing at
+        page = client.get("/setup").text
+        assert "Connect your EVE application" in page and "http://testserver/callback" in page
+        assert "callback URL should look like" in client.post(
+            "/setup/eve", data={"client_id": "id", "client_secret": "sec", "callback_url": "nonsense"}).text
+        r = client.post("/setup/eve", data={"client_id": "id1", "client_secret": "sec1",
+                                             "callback_url": "http://testserver/callback"}, follow_redirects=False)
+        assert r.status_code == 303 and sso.configured()
+        # step 3: add a character
+        assert "Log in with EVE Online" in client.get("/setup").text
+        r = client.get("/sso/login", follow_redirects=False)
+        assert "client_id=id1" in r.headers["location"] and "testserver%2Fcallback" in r.headers["location"]
+        # nobody can re-run the password step once a password exists
+        assert client.post("/setup/password", data={"password": "hacked1", "confirm": "hacked1"}).status_code == 403
+        # once a character exists, setup is done
+        db.ex("INSERT INTO characters (character_id, name) VALUES (1, 'X')")
+        assert client.get("/setup", follow_redirects=False).headers["location"] == "/"
+    with TestClient(app) as anon:
+        assert anon.get("/assets", follow_redirects=False).headers["location"] == "/login"
+        assert anon.get("/setup", follow_redirects=False).headers["location"] == "/login"
+        assert anon.post("/setup/eve", data={"client_id": "evil", "client_secret": "x",
+                                             "callback_url": "http://evil/callback"},
+                         follow_redirects=False).headers["location"] == "/login"
+    assert sso.client_id() == "id1"
+
+
+def test_settings_edit_app_and_password(fake_char):
+    from fastapi.testclient import TestClient
+    from evetracker import sso
+    from evetracker.web import app
+    client = logged_in_client()
+    # blank secret keeps the old one
+    r = client.post("/setup/eve", data={"client_id": "newid", "client_secret": "",
+                                        "callback_url": "http://192.168.0.132:8000/callback", "next": "/settings"},
+                    follow_redirects=False)
+    assert "saved" in r.headers["location"]
+    assert sso.client_id() == "newid" and sso.client_secret() == "s3cret"
+    assert sso.callback_url() == "http://192.168.0.132:8000/callback"
+    r = client.post("/settings/password", data={"current": "wrong", "password": "newpass1", "confirm": "newpass1"},
+                    follow_redirects=False)
+    assert "wrong" in r.headers["location"]
+    with TestClient(app) as other:  # a second browser, logged in with the old password
+        other.post("/login", data={"password": "correct horse"})
+        assert other.get("/assets", follow_redirects=False).status_code == 200
+        r = client.post("/settings/password", data={"current": "correct horse", "password": "newpass1",
+                                                     "confirm": "newpass1"}, follow_redirects=False)
+        assert "changed" in r.headers["location"]
+        assert client.get("/assets", follow_redirects=False).status_code == 200   # this browser stays in
+        assert other.get("/assets", follow_redirects=False).status_code == 303    # others are logged out
+        assert "Wrong password" in other.post("/login", data={"password": "correct horse"}).text
+        other.post("/login", data={"password": "newpass1"})
+        assert other.get("/assets", follow_redirects=False).status_code == 200
+    client.__exit__(None, None, None)
+
+
+def test_stale_env_callback_does_not_override(monkeypatch):
+    from evetracker import config, sso
+    reset_setup()
+    monkeypatch.setattr(config, "EVE_CALLBACK_URL", "http://raspberrypi.local:8000/callback")
+    sso.save_app("dbid", "dbsecret", "http://192.168.0.132:8000/callback")
+    assert not sso.from_env()
+    assert sso.callback_url() == "http://192.168.0.132:8000/callback"
+    monkeypatch.setattr(config, "EVE_CLIENT_ID", "envid")
+    monkeypatch.setattr(config, "EVE_CLIENT_SECRET", "envsecret")
+    assert sso.from_env() and sso.client_id() == "envid"
+    assert sso.callback_url() == "http://raspberrypi.local:8000/callback"

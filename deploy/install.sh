@@ -19,11 +19,8 @@ fi
 .venv/bin/pip install --upgrade pip >/dev/null
 .venv/bin/pip install -r requirements.txt
 
-if [ ! -f .env ]; then
-  cp .env.example .env
-  chmod 600 .env
-  echo "Created .env. Edit it with your EVE application's client ID/secret, then re-run this script."
-fi
+# Optional overrides only: everything is normally configured in the web UI's setup wizard.
+[ -f .env ] || { cp .env.example .env; chmod 600 .env; }
 
 sed -e "s|__DIR__|$DIR|g" -e "s|__USER__|$USER_NAME|g" deploy/eve-tracker.service \
   | sudo tee /etc/systemd/system/eve-tracker.service >/dev/null
@@ -32,5 +29,10 @@ sudo systemctl enable eve-tracker
 sudo systemctl restart eve-tracker
 sleep 2
 systemctl --no-pager --lines=5 status eve-tracker || true
+IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
-echo "EVE Tracker is running at http://$(hostname).local:8000  (logs: journalctl -u eve-tracker -f)"
+echo "EVE Tracker is running. Open this address in a browser on your network to finish setup:"
+echo
+echo "    http://${IP:-$(hostname).local}:8000"
+echo
+echo "Logs: journalctl -u eve-tracker -f"

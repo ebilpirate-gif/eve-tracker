@@ -24,11 +24,13 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", ROOT / "data")).resolve()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "evetracker.db"
 
+# Everything below is optional: the setup wizard in the web UI stores these in the database.
+# Values set here (or in .env) take priority over the web UI.
 EVE_CLIENT_ID = os.environ.get("EVE_CLIENT_ID", "")
 EVE_CLIENT_SECRET = os.environ.get("EVE_CLIENT_SECRET", "")
-EVE_CALLBACK_URL = os.environ.get("EVE_CALLBACK_URL", "http://localhost:8000/callback")
+EVE_CALLBACK_URL = os.environ.get("EVE_CALLBACK_URL", "")
 
-# Optional password protecting the web UI (strongly recommended: wallets are visible).
+# Web UI password. Normally chosen in the setup wizard; setting it here overrides that.
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 
 # Contact info sent in the User-Agent, as CCP asks third-party apps to do.
@@ -49,5 +51,3 @@ def _secret_key() -> str:
 
 
 SECRET_KEY = _secret_key()
-
-SSO_CONFIGURED = bool(EVE_CLIENT_ID and EVE_CLIENT_SECRET)
