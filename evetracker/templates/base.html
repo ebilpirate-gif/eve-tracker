@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="{{ theme }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,7 +8,7 @@
 <script>
 // Registered before any image loads: swap pictures EVE's image server doesn't have
 // (e.g. many SKINs) for a neutral placeholder instead of a broken-image icon.
-window.EVE_PLACEHOLDER = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="4" fill="#18202b"/><path d="M16 7l8 4.5v9L16 25l-8-4.5v-9z" fill="none" stroke="#3b4a5e" stroke-width="2"/></svg>');
+window.EVE_PLACEHOLDER = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="4" fill="#808080" fill-opacity=".15"/><path d="M16 7l8 4.5v9L16 25l-8-4.5v-9z" fill="none" stroke="#808080" stroke-opacity=".6" stroke-width="2"/></svg>');
 document.addEventListener("error", function (e) {
   var img = e.target;
   if (img.tagName === "IMG" && img.src !== window.EVE_PLACEHOLDER) { img.src = window.EVE_PLACEHOLDER; img.classList.add("noimg"); }
@@ -16,7 +16,7 @@ document.addEventListener("error", function (e) {
 </script>
 <script src="/static/app.js?v={{ asset_v }}" defer></script>
 </head>
-<body>
+<body data-ui="{{ 1 if ui_enabled else 0 }}">
 <header>
   <a class="brand" href="/">◈ EVE Tracker</a>
   {% if password_set and nav != 'login' %}
@@ -26,6 +26,7 @@ document.addEventListener("error", function (e) {
     <a href="/trade" class="{{ 'on' if nav == 'trade' }}">Trading</a>
     <a href="/orders" class="{{ 'on' if nav == 'orders' }}">Orders &amp; Wallet</a>
     <a href="/contracts" class="{{ 'on' if nav == 'contracts' }}">Contracts</a>
+    <a href="/map" class="{{ 'on' if nav == 'map' }}">Map</a>
     <a href="/industry" class="{{ 'on' if nav == 'industry' }}">Industry</a>
     <a href="/settings" class="{{ 'on' if nav == 'settings' }}">Settings</a>
     <a href="/logout">Log out</a>

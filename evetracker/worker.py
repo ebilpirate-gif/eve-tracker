@@ -4,7 +4,7 @@ import logging
 import time
 import traceback
 
-from . import corp, db, market, sde, sso, sync
+from . import corp, db, locations, market, sde, sso, sync
 from .esi import ESI
 
 log = logging.getLogger("worker")
@@ -28,6 +28,7 @@ class Worker:
             "undercut": (600, self.job_undercut),
             "networth": (3600, self.job_networth),
             "maintenance": (86400, self.job_maintenance),
+            "locations": (60, self.job_locations),
         }
         for key in db.get_setting("hubs"):
             if key in market.HUBS:
@@ -62,6 +63,8 @@ class Worker:
                 for name, (interval, fn) in self.jobs().items():
                     if name != "sde" and not sde.is_loaded():
                         continue  # everything else needs static data first
+                    if name == "sde" and sde.is_loaded() and not sde.map_loaded():
+                        interval = 300  # an older install: fetch the map data added later (retry every 5 min)
                     row = log_rows.get(name)
                     if row is not None and not row["ok"]:
                         interval = min(interval, 300)  # retry failures after 5 minutes
@@ -127,6 +130,9 @@ class Worker:
         db.ex("PRAGMA wal_checkpoint(TRUNCATE)")
         db.ex("PRAGMA optimize")
         return f"removed {cache} stale cache entries, {old_history} old volume records"
+
+    async def job_locations(self):
+        return await locations.sync_characters(self.esi)
 
     async def job_networth(self):
         return sync.snapshot_networth()

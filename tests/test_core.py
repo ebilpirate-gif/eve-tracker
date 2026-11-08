@@ -146,6 +146,14 @@ FAKE = {
         {"structure_id": 1035000000002, "corporation_id": CORP, "name": "PHLD Refinery", "type_id": 35835,
          "system_id": 30000142, "state": "armor_reinforce", "state_timer_end": "2099-01-01T00:00:00Z",
          "fuel_expires": "2099-01-01T00:00:00Z", "services": []}],
+    f"/corporations/{CORP}/membertracking/": [
+        {"character_id": CID, "location_id": 60003760, "ship_type_id": 587,
+         "logon_date": "2026-11-08T10:00:00Z", "logoff_date": "2026-11-08T09:00:00Z"},
+        {"character_id": 92000005, "location_id": 30002187, "ship_type_id": 587,
+         "logon_date": "2026-11-01T10:00:00Z", "logoff_date": "2026-11-01T12:00:00Z"}],
+    f"/characters/{CID}/location/": {"solar_system_id": 30000142, "station_id": 60003760},
+    f"/characters/{CID}/ship/": {"ship_type_id": 587, "ship_name": "Mining Boat", "ship_item_id": 1},
+    f"/characters/{CID}/online/": {"online": True, "last_login": "2026-11-08T10:00:00Z"},
     f"/characters/{CID}/wallet/": 1_234_567.89,
     f"/characters/{CID}/orders/": [
         {"order_id": 1, "type_id": 34, "region_id": 10000002, "location_id": 60003760, "is_buy_order": False,
@@ -706,3 +714,93 @@ def test_icon_urls_for_blueprints():
     assert sde.icon_url(587) == "https://images.evetech.net/types/587/icon?size=32"
     assert sde.icon_url(691) == "https://images.evetech.net/types/691/bp?size=32"
     assert sde.icon_url(691, 32, bpc=True) == "https://images.evetech.net/types/691/bpc?size=32"
+
+
+def test_assets_tree(fake_char):
+    from evetracker import assets_view, corp
+    _sync_all_fake()
+    # give the character a fitted ship with cargo, inside a station hangar
+    db.ex("DELETE FROM assets WHERE character_id = ?", (CID,))
+    rows = [(800, CID, 587, 60003760, "Hangar", "station", 1, 1, 0, 60003760, "Mining Boat"),
+            (801, CID, 35, 800, "HiSlot0", "item", 1, 1, 0, 60003760, None),
+            (802, CID, 35, 800, "HiSlot1", "item", 1, 1, 0, 60003760, None),
+            (803, CID, 34, 800, "Cargo", "item", 500, 0, 0, 60003760, None)]
+    db.exmany("INSERT INTO assets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+    db.ex("INSERT OR REPLACE INTO prices VALUES (35, 1e6, 1e6)")
+    db.ex("DELETE FROM hub_prices")
+    db.ex("INSERT INTO hub_prices VALUES (60003760, 35, 9e5, 1e8, 1, 1, 1, 1)")  # 100x average: thin market
+    tree = assets_view.build()
+    jita = next(l for l in tree["locations"] if l["id"] == 60003760)
+    owners = {o["name"]: o for o in jita["owners"]}
+    me = owners["Test Pilot"]
+    assert [s["label"] for s in me["sections"]] == ["Item hangar"]
+    ship = me["sections"][0]["nodes"][0]
+    assert ship["name"] == "Rifter" and ship["label"] == "Mining Boat"
+    assert [s["label"] for s in ship["children"]] == ["High slots", "Cargo"]
+    assert ship["children"][0]["count"] == 2
+    assert ship["children"][0]["nodes"][0]["thin"]
+    # value rolls up: ship + 2 modules + 500 trit
+    assert ship["total"] == pytest.approx(500000 + 2 * 1e8 + 500 * 4.0)
+    assert me["total"] == pytest.approx(ship["total"])
+    # corp office: hangar divisions sit directly under the corporation, named
+    labels = [s["label"] for s in owners["[PHLD] Pilot Holdings"]["sections"]]
+    assert labels[0] == "Hangar 2: Minerals"
+    amarr = next(l for l in tree["locations"] if l["id"] == 60008494)
+    assert amarr["owners"][0]["sections"][0]["label"] == "Corp deliveries"
+    assert tree["total"] == pytest.approx(sum(l["total"] for l in tree["locations"]))
+    assert assets_view.section_for("RigSlot2") == "Rigs" and assets_view.section_for("DroneBay") == "Drone bay"
+
+
+
+def _mini_map():
+    db.ex("DELETE FROM systems")
+    db.ex("DELETE FROM jumps")
+    db.exmany("INSERT OR REPLACE INTO systems VALUES (?, ?, ?, ?, ?, ?, ?)", [
+        (30000142, "Jita", 10000002, 0.95, -1.0e17, 4.0e16, 20000020),
+        (30000144, "Perimeter", 10000002, 0.95, -1.01e17, 4.1e16, 20000020),
+        (30002187, "Amarr", 10000043, 1.0, -0.2e17, 0.5e16, 20000322),
+        (31000005, "Thera", 11000031, -0.99, 0.0, 0.0, 21000324)])     # wormhole space: not on the map
+    db.exmany("INSERT INTO jumps VALUES (?, ?)", [(30000142, 30000144), (30000144, 30000142), (30000142, 30002187)])
+    db.ex("INSERT OR REPLACE INTO regions VALUES (10000002, 'The Forge', 0, 0), (10000043, 'Domain', 0, 0)")
+    db.ex("INSERT OR REPLACE INTO stations VALUES (60003760, 'Jita IV - Moon 4', 30000142, 10000002)")
+    db.ex("INSERT OR REPLACE INTO stations VALUES (60008494, 'Amarr VIII', 30002187, 10000043)")
+
+
+def test_map_and_locations(fake_char):
+    from evetracker import locations, sde
+    _mini_map()
+    _sync_all_fake()
+    db.set_kv("sde_updated", db.get_kv("sde_updated") or 1)
+    msg = asyncio.run(locations.sync_characters(_fake_esi()))
+    assert "1 of 1" in msg
+    loc = db.q1("SELECT * FROM char_location WHERE character_id = ?", (CID,))
+    assert loc["system_id"] == 30000142 and loc["ship_name"] == "Mining Boat" and loc["online"] == 1
+    assert sde.map_loaded()
+    m = locations.static_map()
+    names = {s[1] for s in m["systems"]}
+    assert names == {"Jita", "Perimeter", "Amarr"}  # Thera (wormhole space) left out
+    assert sorted(m["jumps"]) == [[30000142, 30000144], [30000142, 30002187]]  # de-duplicated
+    assert all(0 <= s[2] <= 1000 and 0 <= s[3] <= 1000 for s in m["systems"])
+    live = locations.live_map({587: 500000, 34: 4.0, 35: 10.0})
+    me = live["characters"][0]
+    assert me["system"] == "Jita" and me["ship"] == "Rifter" and me["docked"].startswith("Jita")
+    # corp members: the CEO himself is listed under "my characters", not duplicated as a member
+    assert [m["id"] for m in live["members"]] == [92000005]
+    other = live["members"][0]
+    assert other["system"] == "Amarr" and other["online"] is False and other["name"] == "Pilot 92000005"
+    assert dict(live["assets"])[30000142] > 0
+    with logged_in_client() as client:
+        assert "map-canvas-wrap" in client.get("/map").text
+        r = client.get("/api/map/static?v=1")
+        assert r.status_code == 200 and "max-age" in r.headers["cache-control"] and len(r.json()["systems"]) == 3
+        assert client.get("/api/map/live").json()["characters"][0]["name"] == "Test Pilot"
+
+
+def test_themes(fake_char):
+    with logged_in_client() as client:
+        assert 'data-theme="dark"' in client.get("/").text
+        client.cookies.set("theme", "caldari")
+        page = client.get("/settings").text
+        assert 'data-theme="caldari"' in page and 'data-theme-choice="minmatar"' in page
+        client.cookies.set("theme", "<script>")
+        assert 'data-theme="dark"' in client.get("/").text  # unknown values fall back safely

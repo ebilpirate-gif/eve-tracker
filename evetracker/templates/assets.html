@@ -1,22 +1,93 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui with context %}
+
+{% macro item_row(n) -%}
+  <span class="tn-name"><img class="icon" src="{{ icon(n.type_id, 32, n.bpc) }}" alt="" loading="lazy">
+    <span>{{ n.name }}{% if n.label %} <span class="tag">“{{ n.label }}”</span>{% endif %}{% if n.bpc %} <span class="tag">BPC</span>{% endif %}{% if n.thin %} <span class="tag warn-tag" title="Priced from a thin market: the cheapest sell order is more than 3× CCP's average price, so this value may be unrealistic">⚠ thin market</span>{% endif %}</span>
+    {{ ui.eve(n.type_id) }}</span>
+  <span class="tn-qty">{{ n.qty|num if n.qty > 1 or not n.children else '' }}</span>
+  <span class="tn-unit">{{ n.unit|isk if n.unit else '' }}</span>
+  <span class="tn-val">{{ n.total|isk }}</span>
+{%- endmacro %}
+
+{% macro tree_node(n) -%}
+  {% if n.children %}
+  <details class="tn" data-name="{{ (n.name ~ ' ' ~ (n.label or ''))|lower }}">
+    <summary class="tn-row">{{ item_row(n) }}</summary>
+    <div class="tn-kids">
+    {% for s in n.children %}
+      <details class="tn tn-section" open>
+        <summary class="tn-row tn-sec"><span class="tn-name">{{ s.label }} <span class="muted small">{{ s.count }}</span></span><span></span><span></span><span class="tn-val">{{ s.total|isk }}</span></summary>
+        <div class="tn-kids">{% for c in s.nodes %}{{ tree_node(c) }}{% endfor %}</div>
+      </details>
+    {% endfor %}
+    </div>
+  </details>
+  {% else %}
+  <div class="tn tn-row tn-leaf" data-name="{{ (n.name ~ ' ' ~ (n.label or ''))|lower }}">{{ item_row(n) }}</div>
+  {% endif %}
+{%- endmacro %}
+
 {% block content %}
+<div class="tabs">
+  <a href="?view=tree&char={{ char }}" class="{{ 'on' if view == 'tree' }}">Tree</a>
+  <a href="?view=list&char={{ char }}" class="{{ 'on' if view == 'list' }}">List</a>
+</div>
 <form class="filters" method="get">
+  <input type="hidden" name="view" value="{{ view }}">
   <label>Owner
-    <select name="char"><option value="0">All</option>
+    <select name="char" onchange="this.form.submit()"><option value="0">All</option>
       {% for c in chars %}<option value="{{ c.owner_id }}" {{ 'selected' if c.owner_id == char }}>{{ c.name }}</option>{% endfor %}
     </select></label>
+  {% if view == 'tree' %}
+  <label>Search <input id="tree-search" name="q" value="{{ q }}" placeholder="type to find items, ships, containers" autocomplete="off"></label>
+  <button type="button" class="small" data-tree="expand">Expand all</button>
+  <button type="button" class="small" data-tree="collapse">Collapse all</button>
+  {% else %}
   <label>Search <input name="q" value="{{ q }}" placeholder="item or ship name"></label>
   <label>Min value <input name="min_value" type="text" inputmode="decimal" class="num" title="Accepts 500k, 1.5m, 2b" value="{{ min_value|int if min_value else '' }}" placeholder="e.g. 10m"></label>
   <button>Filter</button>
+  {% endif %}
 </form>
 
 <div class="stats">
-  <div class="stat big"><span>Total value</span><b>{{ total|isk }}</b></div>
+  <div class="stat big"><span>Market value</span><b>{{ total|isk }}</b><div class="muted small">at sell orders</div></div>
+  <div class="stat"><span>Quick-sale value</span><b>{{ quick_total|isk }}</b><div class="muted small">dumped into buy orders</div></div>
   <div class="stat"><span>Locations</span><b>{{ locations|length }}</b></div>
-  <div class="stat"><span>Stacks</span><b>{{ item_count|num }}</b></div>
+  <div class="stat"><span>Items</span><b>{{ item_count|num }}</b></div>
 </div>
 
+{% if view == 'tree' %}
+<p id="tree-empty" class="card muted" hidden>Nothing matches your search.</p>
+<div class="tree" id="tree">
+{% for loc in tree.locations %}
+  <details class="card tn tn-loc" {{ 'open' if loop.index <= 3 }} data-name="{{ loc.name|lower }}">
+    <summary class="tn-row tn-top"><span class="tn-name"><b>{{ loc.name }}</b> {{ ui.dest(loc.id) }}</span><span class="tn-qty muted small">{{ loc.count|num }} items</span><span></span><span class="tn-val accent">{{ loc.total|isk }}</span></summary>
+    <div class="tn-kids">
+    {% for o in loc.owners %}
+      <details class="tn tn-owner" open>
+        <summary class="tn-row tn-own"><span class="tn-name">
+          {% if o.is_corp %}<img class="portrait corp" src="https://images.evetech.net/corporations/{{ o.id }}/logo?size=32" alt="" loading="lazy">
+          {% else %}<img class="portrait" src="https://images.evetech.net/characters/{{ o.id }}/portrait?size=32" alt="" loading="lazy">{% endif %}
+          {{ o.name }}</span><span class="tn-qty muted small">{{ o.count|num }}</span><span></span><span class="tn-val">{{ o.total|isk }}</span></summary>
+        <div class="tn-kids">
+        {% for s in o.sections %}
+          <details class="tn tn-section" {{ 'open' if o.sections|length == 1 }}>
+            <summary class="tn-row tn-sec"><span class="tn-name">{{ s.label }} <span class="muted small">{{ s.count|num }}</span></span><span></span><span></span><span class="tn-val">{{ s.total|isk }}</span></summary>
+            <div class="tn-kids">{% for n in s.nodes %}{{ tree_node(n) }}{% endfor %}</div>
+          </details>
+        {% endfor %}
+        </div>
+      </details>
+    {% endfor %}
+    </div>
+  </details>
+{% else %}
+  <p class="card muted">No assets yet. They sync hourly after you add a character.</p>
+{% endfor %}
+</div>
+
+{% else %}
 {% for loc in locations %}
 <details class="card loc" {{ 'open' if loop.index <= 3 or q }}>
   <summary><span>{{ loc.name }} {{ ui.dest(loc.id) }}</span><span class="muted">{{ loc.count }} stacks</span><b>{{ loc.value|isk }}</b></summary>
@@ -41,4 +112,5 @@
 {% else %}
 <p class="card muted">No assets yet. They sync hourly after you add a character.</p>
 {% endfor %}
+{% endif %}
 {% endblock %}

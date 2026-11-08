@@ -36,6 +36,11 @@ SCOPES = [
     "esi-corporations.read_structures.v1",
     "esi-ui.open_window.v1",
     "esi-ui.write_waypoint.v1",
+    # map: where your characters and corp members are
+    "esi-location.read_location.v1",
+    "esi-location.read_ship_type.v1",
+    "esi-location.read_online.v1",
+    "esi-corporations.track_members.v1",
 ]
 
 

@@ -28,11 +28,12 @@ STEPS = {
     "blueprints": (3600, "esi-corporations.read_blueprints.v1", {"Director"}),
     "contracts": (900, "esi-contracts.read_corporation_contracts.v1", None),  # any member
     "structures": (900, "esi-corporations.read_structures.v1", {"Director", "Station_Manager"}),
+    "members": (600, "esi-corporations.track_members.v1", {"Director"}),
 }
 LABELS = {
     "divisions": "Division names", "wallets": "Wallets", "transactions": "Transactions", "journal": "Journal",
     "orders": "Market orders", "industry": "Industry jobs", "assets": "Assets", "blueprints": "Blueprints",
-    "contracts": "Contracts", "structures": "Structures",
+    "contracts": "Contracts", "structures": "Structures", "members": "Member tracking",
 }
 DIVISIONS = range(1, 8)
 
@@ -328,3 +329,8 @@ def structures(fuel_warn_days: float = 7) -> list[dict]:
         d["fuel_low"] = d["fuel_days"] is not None and d["fuel_days"] < fuel_warn_days
         out.append(d)
     return out
+
+
+async def sync_members(esi, corp_id, token, corp):
+    from . import locations
+    return await locations.sync_members(esi, corp_id, token)

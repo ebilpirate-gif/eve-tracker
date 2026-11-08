@@ -13,9 +13,10 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import alerts, auth, config, contracts, corp, db, health, industry, market, pnl, pricing, sde, sso, sync
+from . import alerts, assets_view, auth, locations, config, contracts, corp, db, health, industry, market, pnl, pricing, sde, sso, sync
 from .worker import Worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -81,7 +82,18 @@ templates.env.globals["ACTIVITY_NAMES"] = industry.ACTIVITY_NAMES
 templates.env.globals["entity_name"] = contracts.name
 templates.env.globals["icon"] = sde.icon_url
 # Changes whenever the CSS/JS change, so browsers fetch the new version after an update.
-templates.env.globals["asset_v"] = str(int(max((HERE / "static" / f).stat().st_mtime for f in ("app.js", "style.css"))))
+templates.env.globals["asset_v"] = str(int(max((HERE / "static" / f).stat().st_mtime
+                                               for f in ("app.js", "style.css", "map.js"))))
+
+
+THEMES = {  # name -> (label, background, panel, accent, text) for the picker swatches
+    "dark": ("Dark", "#0b0f14", "#18202b", "#f0b429", "#d7dee8"),
+    "light": ("Light", "#f3f5f8", "#ffffff", "#b7791f", "#1b2430"),
+    "caldari": ("Caldari", "#091019", "#142233", "#4fb3ff", "#d5e3f0"),
+    "amarr": ("Amarr", "#110d07", "#231b10", "#e8b84a", "#eee4ce"),
+    "gallente": ("Gallente", "#07110d", "#12241d", "#3fd6a0", "#d4ebe2"),
+    "minmatar": ("Minmatar", "#120b09", "#251914", "#e3733c", "#eddcd2"),
+}
 
 
 def render(request: Request, name: str, **ctx):
@@ -90,6 +102,9 @@ def render(request: Request, name: str, **ctx):
     ctx["sde_loaded"] = sde.is_loaded()
     ctx["password_set"] = auth.password_set()
     ctx["ui_enabled"] = bool(ui_characters())
+    theme = request.cookies.get("theme", "dark")
+    ctx["theme"] = theme if theme in THEMES else "dark"
+    ctx["themes"] = THEMES
     return templates.TemplateResponse(request, name, ctx)
 
 
@@ -147,6 +162,7 @@ async def require_password(request: Request, call_next):
 
 
 app.add_middleware(SessionMiddleware, secret_key=config.SECRET_KEY, max_age=30 * 86400, same_site="lax")
+app.add_middleware(GZipMiddleware, minimum_size=1000)  # pages and map data are much smaller over Pi Wi-Fi
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -283,9 +299,20 @@ def svg_chart(series, w=800, h=180):
 
 
 @app.get("/assets", response_class=HTMLResponse)
-def assets_page(request: Request, char: str = "0", q: str = "", min_value: str = ""):
+def assets_page(request: Request, char: str = "0", q: str = "", min_value: str = "", view: str = ""):
     char = parse_int(char)
     min_value = parse_num(min_value)
+    view = view if view in ("tree", "list") else request.cookies.get("assets_view", "tree")
+    if view not in ("tree", "list"):
+        view = "tree"
+    quick = quick_sale_total(char)
+    if view == "tree":
+        tree = assets_view.build(char)
+        resp = render(request, "assets.html", view="tree", tree=tree, total=tree["total"], quick_total=quick,
+                      chars=owners(), char=char, q=q, min_value=min_value, item_count=tree["count"],
+                      locations=tree["locations"])
+        resp.set_cookie("assets_view", "tree", max_age=10 * 365 * 86400, samesite="lax")
+        return resp
     prices = market.price_map()
     where, params = [], []
     if char:
@@ -328,8 +355,21 @@ def assets_page(request: Request, char: str = "0", q: str = "", min_value: str =
         loc["items"].sort(key=lambda i: i["value"], reverse=True)
         locs.append({"id": lid, "name": sde.location_name(lid), **loc})
     locs.sort(key=lambda x: x["value"], reverse=True)
-    return render(request, "assets.html", locations=locs, total=total, chars=owners(), char=char, q=q,
-                  min_value=min_value, item_count=sum(l["count"] for l in locs))
+    resp = render(request, "assets.html", view="list", locations=locs, total=total, quick_total=quick,
+                  chars=owners(), char=char, q=q, min_value=min_value, item_count=sum(l["count"] for l in locs))
+    resp.set_cookie("assets_view", "list", max_age=10 * 365 * 86400, samesite="lax")
+    return resp
+
+
+def quick_sale_total(owner: int = 0) -> float:
+    """What everything would fetch if sold instantly into buy orders at the valuation hub."""
+    hub = market.HUBS[db.get_setting("valuation_hub")]
+    buy = {r[0]: r[1] for r in db.q("SELECT type_id, best_buy FROM hub_prices WHERE station_id = ? AND best_buy > 0",
+                                    (hub["station_id"],))}  # only real buy orders, no fallbacks
+    where, params = ("WHERE character_id = ?", [owner]) if owner else ("", [])
+    return sum(buy.get(t, 0.0) * q for t, q in db.q(
+        f"SELECT type_id, SUM(quantity) FROM assets {where} {'AND' if where else 'WHERE'} is_blueprint_copy = 0 "
+        "GROUP BY type_id", params))
 
 
 @app.get("/trade", response_class=HTMLResponse)
@@ -624,3 +664,28 @@ def system_page(request: Request):
               ("assets", "orders", "transactions", "journal", "contracts", "hub_prices", "market_history", "esi_cache")}
     return render(request, "system.html", nav="settings", h=health.snapshot(), jobs=jobs, counts=counts,
                   running=request.app.state.worker.running)
+
+
+# ---------- map ----------
+
+@app.get("/map", response_class=HTMLResponse)
+def map_page(request: Request):
+    return render(request, "map.html", map_ready=sde.map_loaded(), map_v=locations.map_version(),
+                  has_scope=any(locations.LOCATION in (c["scopes"] or "").split() for c in characters()))
+
+
+_static_map_cache: dict = {}
+
+
+@app.get("/api/map/static")
+def map_static(v: str = ""):
+    version = locations.map_version()
+    if _static_map_cache.get("v") != version:
+        _static_map_cache.update(v=version, data=locations.static_map())
+    # Static game data: let the browser keep it (the URL changes when the data does).
+    return JSONResponse(_static_map_cache["data"], headers={"Cache-Control": "private, max-age=604800"})
+
+
+@app.get("/api/map/live")
+def map_live():
+    return locations.live_map(market.price_map())

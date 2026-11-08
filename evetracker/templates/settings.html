@@ -29,6 +29,20 @@
   {% endif %}
 </section>
 
+<section class="card">
+  <h2>Appearance</h2>
+  <div class="themes">
+    {% for key, t in themes.items() %}
+    <button type="button" class="theme-swatch" data-theme-choice="{{ key }}" aria-pressed="{{ 'true' if key == theme else 'false' }}"
+            style="background: {{ t[1] }}; color: {{ t[4] }};">
+      {{ t[0] }}
+      <span class="chips"><i style="background: {{ t[2] }}"></i><i style="background: {{ t[3] }}"></i><i style="background: {{ t[4] }}"></i></span>
+    </button>
+    {% endfor %}
+  </div>
+  <p class="muted small">Remembered on this device only, so your phone and PC can use different themes.</p>
+</section>
+
 {% if corps %}
 <section class="card">
   <h2>Corporations</h2>

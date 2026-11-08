@@ -41,10 +41,13 @@ TABLES = {
     "industryActivityProducts": ("bp_products", ["type_id", "activity_id", "product_type_id", "quantity"],
                                  lambda r: (int(r["typeID"]), int(r["activityID"]),
                                             int(r["productTypeID"]), int(r["quantity"]))),
-    "mapRegions": ("regions", ["region_id", "name"], lambda r: (int(r["regionID"]), r["regionName"])),
-    "mapSolarSystems": ("systems", ["system_id", "name", "region_id", "security"],
+    "mapRegions": ("regions", ["region_id", "name", "x", "z"],
+                   lambda r: (int(r["regionID"]), r["regionName"], _num(r["x"]), _num(r["z"]))),
+    "mapSolarSystems": ("systems", ["system_id", "name", "region_id", "security", "x", "z", "constellation_id"],
                         lambda r: (int(r["solarSystemID"]), r["solarSystemName"], int(r["regionID"]),
-                                   _num(r["security"]))),
+                                   _num(r["security"]), _num(r["x"]), _num(r["z"]), _num(r["constellationID"], int))),
+    "mapSolarSystemJumps": ("jumps", ["from_system_id", "to_system_id"],
+                            lambda r: (int(r["fromSolarSystemID"]), int(r["toSolarSystemID"]))),
     "staStations": ("stations", ["station_id", "name", "system_id", "region_id"],
                     lambda r: (int(r["stationID"]), r["stationName"], int(r["solarSystemID"]), int(r["regionID"]))),
 }
@@ -87,6 +90,12 @@ async def update_sde() -> str:
             log.info("SDE %s imported", name)
     db.set_kv("sde_updated", time.time())
     return ", ".join(counts)
+
+
+def map_loaded() -> bool:
+    """Map coordinates and stargates (added after the first release; older installs re-import)."""
+    return bool(db.val("SELECT COUNT(*) FROM jumps", default=0)) and \
+        not db.val("SELECT COUNT(*) FROM systems WHERE x IS NULL", default=0)
 
 
 def is_loaded() -> bool:

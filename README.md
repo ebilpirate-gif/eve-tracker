@@ -24,6 +24,9 @@ A self-hosted EVE Online asset tracker and trading tool, built to run on a Raspb
 
 _Screenshots use live market data and a demo character._
 
+- **Assets tree:** browse like the in-game inventory: station → owner → corp hangar divisions → ships (by slot: high, mid, low, rigs, cargo, drones) and containers, with values rolled up at every level, search-as-you-type, market vs quick-sale totals and thin-market warnings.
+- **Map:** a zoomable map of New Eden showing where your characters are (live: system, docked or in space, ship, online), where your corp members are (member tracking, needs Director), plus asset value per system and your structures.
+- **Themes:** Dark, Light, Caldari, Amarr, Gallente and Minmatar, chosen per device.
 - **Contracts:** item-exchange and courier contracts for characters and corporations, with each contract's item value compared against its price.
 - **Alerts on the Dashboard:** undercut orders, structure fuel and reinforcement, skill queues running out, contracts about to expire, finished industry jobs and Pi health problems.
 - **Repricing helper:** each undercut order shows the closest valid price to beat (EVE allows at most 4 significant digits), ready to copy.
@@ -99,7 +102,7 @@ Run the tests with `.venv/bin/pip install pytest && .venv/bin/python -m pytest t
 
 ## Roadmap
 
-**Phase 2: map.** A zoomable map of New Eden showing where each character is (system, docked or in space, ship), with optional layers for asset value per system, orders and industry jobs, and routes to trade hubs. It needs the location permissions added to the EVE application and each character to log in once more.
+Ideas for later: a "by item" assets view and category filters, a daily "what changed" asset report, phone/Discord push alerts, routes and jump counts on the map, invention / T2 build chains.
 
 ## Limitations / ideas for later
 

@@ -23,8 +23,10 @@ CREATE TABLE IF NOT EXISTS bp_materials (type_id INTEGER, activity_id INTEGER, m
 CREATE INDEX IF NOT EXISTS bp_materials_t ON bp_materials(type_id, activity_id);
 CREATE TABLE IF NOT EXISTS bp_products (type_id INTEGER, activity_id INTEGER, product_type_id INTEGER, quantity INTEGER);
 CREATE INDEX IF NOT EXISTS bp_products_p ON bp_products(product_type_id);
-CREATE TABLE IF NOT EXISTS regions (region_id INTEGER PRIMARY KEY, name TEXT);
-CREATE TABLE IF NOT EXISTS systems (system_id INTEGER PRIMARY KEY, name TEXT, region_id INTEGER, security REAL);
+CREATE TABLE IF NOT EXISTS regions (region_id INTEGER PRIMARY KEY, name TEXT, x REAL, z REAL);
+CREATE TABLE IF NOT EXISTS systems (system_id INTEGER PRIMARY KEY, name TEXT, region_id INTEGER, security REAL,
+    x REAL, z REAL, constellation_id INTEGER);
+CREATE TABLE IF NOT EXISTS jumps (from_system_id INTEGER, to_system_id INTEGER);
 CREATE INDEX IF NOT EXISTS systems_name ON systems(name);
 CREATE TABLE IF NOT EXISTS stations (station_id INTEGER PRIMARY KEY, name TEXT, system_id INTEGER, region_id INTEGER);
 
@@ -133,6 +135,13 @@ CREATE TABLE IF NOT EXISTS corp_structures (
     state TEXT, state_timer_end TEXT, fuel_expires TEXT, reinforce_hour INTEGER, services TEXT, updated REAL
 );
 CREATE TABLE IF NOT EXISTS names (id INTEGER PRIMARY KEY, name TEXT, category TEXT);
+
+-- ---------- where everyone is ----------
+CREATE TABLE IF NOT EXISTS char_location (character_id INTEGER PRIMARY KEY, system_id INTEGER, station_id INTEGER,
+    structure_id INTEGER, ship_type_id INTEGER, ship_name TEXT, online INTEGER, last_login TEXT, last_logout TEXT,
+    updated REAL);
+CREATE TABLE IF NOT EXISTS corp_members (character_id INTEGER PRIMARY KEY, corporation_id INTEGER,
+    location_id INTEGER, system_id INTEGER, ship_type_id INTEGER, logon_date TEXT, logoff_date TEXT, updated REAL);
 """
 
 _local = threading.local()
@@ -178,7 +187,9 @@ def _rebuild(c, table: str, keep_cols) -> None:
 def migrate(c) -> None:
     """Upgrade databases created by older versions in place."""
     for table, col, decl in (("characters", "roles", "TEXT"), ("orders", "wallet_division", "INTEGER"),
-                             ("characters", "total_sp", "INTEGER")):
+                             ("characters", "total_sp", "INTEGER"), ("regions", "x", "REAL"),
+                             ("regions", "z", "REAL"), ("systems", "x", "REAL"), ("systems", "z", "REAL"),
+                             ("systems", "constellation_id", "INTEGER")):
         if col not in _columns(c, table):
             c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     # Corporation support: transactions/journal need composite keys (the same id can appear

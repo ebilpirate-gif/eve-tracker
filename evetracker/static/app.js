@@ -172,3 +172,55 @@ function addCsvButtons() {
   });
 }
 document.addEventListener("DOMContentLoaded", addCsvButtons);
+
+// ---------- themes: applied instantly, remembered per device in a cookie ----------
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-theme-choice]");
+  if (!btn) return;
+  const theme = btn.dataset.themeChoice;
+  document.documentElement.dataset.theme = theme;
+  document.cookie = `theme=${theme}; path=/; max-age=${10 * 365 * 86400}; SameSite=Lax`;
+  document.querySelectorAll("[data-theme-choice]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+  document.dispatchEvent(new CustomEvent("themechange"));
+});
+
+// ---------- assets tree: search as you type, expand/collapse all ----------
+(function () {
+  function setupTree() {
+    const tree = document.getElementById("tree");
+    const input = document.getElementById("tree-search");
+    if (!tree || !input) return;
+    const nodes = [...tree.querySelectorAll(".tn")];
+    const initiallyOpen = new Map(nodes.filter((n) => n.tagName === "DETAILS").map((n) => [n, n.open]));
+
+    function apply() {
+      const q = input.value.trim().toLowerCase();
+      const empty = document.getElementById("tree-empty");
+      if (!q) {
+        nodes.forEach((n) => { n.hidden = false; n.classList.remove("match"); if (initiallyOpen.has(n)) n.open = initiallyOpen.get(n); });
+        if (empty) empty.hidden = true;
+        return;
+      }
+      // Walk bottom-up: a node stays visible if it or anything inside it matches.
+      let any = false;
+      [...nodes].reverse().forEach((n) => {
+        const self = (n.dataset.name || "").includes(q);
+        const kidVisible = n.tagName === "DETAILS" && [...n.querySelectorAll(":scope > .tn-kids > .tn")].some((k) => !k.hidden);
+        n.classList.toggle("match", self);
+        n.hidden = !(self || kidVisible);
+        if (n.tagName === "DETAILS") n.open = kidVisible;
+        if (self) any = true;
+      });
+      if (empty) empty.hidden = any;
+    }
+    let t;
+    input.addEventListener("input", () => { clearTimeout(t); t = setTimeout(apply, 120); });
+    input.form.addEventListener("submit", (e) => { e.preventDefault(); apply(); });
+    document.querySelectorAll("[data-tree]").forEach((b) => b.addEventListener("click", () => {
+      const open = b.dataset.tree === "expand";
+      tree.querySelectorAll("details").forEach((d) => { if (!d.hidden) d.open = open; });
+    }));
+    if (input.value) apply();
+  }
+  document.addEventListener("DOMContentLoaded", setupTree);
+})();

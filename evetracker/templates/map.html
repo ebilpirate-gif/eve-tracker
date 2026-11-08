@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Map – EVE Tracker{% endblock %}
+{% block content %}
+{% if not map_ready %}
+<p class="banner">The map data (system positions and stargates) is downloading in the background. This takes about a minute. Refresh shortly.</p>
+{% else %}
+{% if not has_scope %}
+<p class="banner">To show where your characters are, add <code>esi-location.read_location.v1</code>, <code>esi-location.read_ship_type.v1</code> and <code>esi-location.read_online.v1</code> to your EVE application (plus <code>esi-corporations.track_members.v1</code> for corp members), then log in again from <a href="/settings">Settings</a>.</p>
+{% endif %}
+<div class="map-tools">
+  <label class="check"><input type="checkbox" data-layer="chars" checked> My characters</label>
+  <label class="check"><input type="checkbox" data-layer="members" checked> Corp members</label>
+  <label class="check"><input type="checkbox" data-layer="assets"> Asset value</label>
+  <label class="check"><input type="checkbox" data-layer="structures" checked> Structures</label>
+  <label class="check"><input type="checkbox" data-layer="regions" checked> Region names</label>
+  <input id="map-search" list="map-systems" placeholder="Find a system…" autocomplete="off">
+  <datalist id="map-systems"></datalist>
+  <button type="button" class="small" id="map-fit">Whole map</button>
+  <span class="muted small" id="map-updated"></span>
+</div>
+<div class="map-wrap">
+  <div class="map-canvas-wrap card">
+    <canvas id="map" data-static="/api/map/static?v={{ map_v }}" data-live="/api/map/live" aria-label="Map of New Eden"></canvas>
+    <div id="map-pop" class="map-pop" hidden></div>
+    <div class="map-legend small">
+      <span><i class="sec-hi"></i>High-sec</span><span><i class="sec-lo"></i>Low-sec</span><span><i class="sec-null"></i>Null-sec</span>
+      <span class="muted">Scroll or pinch to zoom · drag to move · click a system</span>
+    </div>
+  </div>
+  <aside class="map-side">
+    <section class="card">
+      <h2>My characters</h2>
+      <div id="list-chars" class="people"><p class="muted small">Loading…</p></div>
+    </section>
+    <section class="card" id="members-card">
+      <h2>Corp members <span class="muted small" id="members-count"></span></h2>
+      <div id="list-members" class="people"><p class="muted small">Loading…</p></div>
+    </section>
+  </aside>
+</div>
+<script src="/static/map.js?v={{ asset_v }}" defer></script>
+{% endif %}
+{% endblock %}
