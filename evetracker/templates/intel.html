@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Intel – EVE Tracker{% endblock %}
+{% block content %}
+<div class="tabs">
+  <a href="?tab=local" class="{{ 'on' if tab == 'local' }}">Local checker</a>
+  <a href="?tab=dscan" class="{{ 'on' if tab == 'dscan' }}">D-scan</a>
+</div>
+
+{% if tab == 'local' %}
+<section class="card">
+  <p class="small">In EVE, click the <b>Local</b> channel's member list, press <b>Ctrl+A</b> then <b>Ctrl+C</b>, and paste here (Ctrl+V). It checks automatically.</p>
+  <textarea id="local-input" class="paste" rows="5" placeholder="Paste the Local member list here…" autofocus></textarea>
+  {% if not has_contacts %}<p class="muted small">Tip: add the contacts permissions (<code>esi-characters.read_contacts.v1</code>, <code>esi-corporations.read_contacts.v1</code>, <code>esi-alliances.read_contacts.v1</code>) to your EVE application and log in again to colour pilots blue/red by your standings.</p>{% endif %}
+</section>
+<div id="local-result" hidden>
+  <div class="stats" id="local-stats"></div>
+  <section class="card">
+    <h2>By alliance / corporation</h2>
+    <div id="local-groups" class="chips-list"></div>
+  </section>
+  <section class="card">
+    <h2>Pilots <span class="muted small" id="zkill-status"></span></h2>
+    <table class="sortable" id="local-table">
+      <thead><tr><th>Pilot</th><th>Corporation</th><th>Alliance</th><th>Standing</th><th class="r" title="zKillboard: share of activity that is killing rather than dying">Danger</th><th class="r">Kills</th><th class="r">Losses</th><th class="r" title="Kills in the last 7 days">Recent</th><th class="r" title="How often they fly in a gang">Gang</th><th>Flies</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="muted small">Pilot stats from <a href="https://zkillboard.com" target="_blank" rel="noopener">zKillboard</a>, cached for 6 hours. Sorted with hostiles and dangerous pilots first.</p>
+  </section>
+</div>
+
+{% else %}
+<section class="card">
+  <p class="small">In EVE, open the <b>Directional Scanner</b>, scan, click a result, press <b>Ctrl+A</b> then <b>Ctrl+C</b>, and paste here.</p>
+  <textarea id="dscan-input" class="paste" rows="5" placeholder="Paste d-scan results here…" autofocus></textarea>
+</section>
+<div id="dscan-result" hidden>
+  <div class="stats" id="dscan-stats"></div>
+  <div class="dscan-grid">
+    <section class="card"><h2>By class</h2><table class="sortable" id="dscan-groups"><thead><tr><th>Class</th><th>Kind</th><th class="r">Count</th></tr></thead><tbody></tbody></table></section>
+    <section class="card"><h2>By type</h2><table class="sortable" id="dscan-types"><thead><tr><th>Type</th><th>Class</th><th class="r">Count</th><th class="r" title="Within 10,000 km">On grid</th></tr></thead><tbody></tbody></table></section>
+  </div>
+</div>
+{% endif %}
+<script src="/static/intel.js?v={{ asset_v }}" defer></script>
+{% endblock %}

@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import alerts, assets_view, auth, locations, config, contracts, corp, db, health, industry, market, pnl, pricing, sde, sso, sync
+from . import alerts, assets_view, auth, intel, locations, config, contracts, corp, db, health, industry, market, pnl, pricing, sde, sso, sync
 from .worker import Worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -83,7 +83,7 @@ templates.env.globals["entity_name"] = contracts.name
 templates.env.globals["icon"] = sde.icon_url
 # Changes whenever the CSS/JS change, so browsers fetch the new version after an update.
 templates.env.globals["asset_v"] = str(int(max((HERE / "static" / f).stat().st_mtime
-                                               for f in ("app.js", "style.css", "map.js"))))
+                                               for f in ("app.js", "style.css", "map.js", "intel.js"))))
 
 
 THEMES = {  # name -> (label, background, panel, accent, text) for the picker swatches
@@ -689,3 +689,61 @@ def map_static(v: str = ""):
 @app.get("/api/map/live")
 def map_live():
     return locations.live_map(market.price_map())
+
+
+
+@app.get("/api/map/intel")
+def map_intel_data():
+    return intel.map_intel()
+
+
+@app.get("/api/route")
+async def api_route(request: Request, origin: str = "", destination: str = "", flag: str = "shortest"):
+    def resolve(text):
+        if text.startswith("char:"):  # "from where my character is"
+            cid = parse_int(text[5:])
+            sid = db.val("SELECT system_id FROM char_location WHERE character_id = ?", (cid,))
+            return db.q1("SELECT system_id, name FROM systems WHERE system_id = ?", (sid,)) if sid else None
+        return intel.find_system(text)
+    a, b = resolve(origin), resolve(destination)
+    if not a or not b:
+        missing = origin if not a else destination
+        return JSONResponse({"error": f"Unknown system: {missing}"}, status_code=400)
+    try:
+        path = await intel.route(request.app.state.worker.esi, a["system_id"], b["system_id"], flag)
+    except Exception as e:
+        return JSONResponse({"error": f"No route found ({e})"}, status_code=502)
+    return {"from": a["name"], "to": b["name"], "flag": flag, "jumps": max(0, len(path) - 1), "path": path,
+            "kills": sum(p["kills"] for p in path),
+            "lowest_sec": min((p["sec"] for p in path), default=None)}
+
+
+# ---------- intel: local checker & d-scan ----------
+
+@app.get("/intel", response_class=HTMLResponse)
+def intel_page(request: Request, tab: str = "local"):
+    has_contacts = any("esi-characters.read_contacts.v1" in (c["scopes"] or "").split() for c in characters())
+    return render(request, "intel.html", tab="dscan" if tab == "dscan" else "local", has_contacts=has_contacts)
+
+
+@app.post("/api/intel/local")
+async def api_local(request: Request):
+    body = await request.json()
+    try:
+        return await intel.check_local(request.app.state.worker.esi, str(body.get("text", ""))[:200_000])
+    except Exception as e:
+        log.exception("local check failed")
+        return JSONResponse({"error": f"Lookup failed: {e}"}, status_code=502)
+
+
+@app.get("/api/intel/zkill")
+async def api_zkill(ids: str = ""):
+    wanted = [parse_int(x) for x in ids.split(",") if parse_int(x)]
+    stats = await intel.zkill_stats(wanted)
+    return {str(k): v for k, v in stats.items()}
+
+
+@app.post("/api/intel/dscan")
+async def api_dscan(request: Request):
+    body = await request.json()
+    return intel.parse_dscan(str(body.get("text", ""))[:500_000])

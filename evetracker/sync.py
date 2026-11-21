@@ -22,6 +22,7 @@ STEPS = {
     "skills": (3600, "esi-skills.read_skills.v1"),
     "skillqueue": (900, "esi-skills.read_skillqueue.v1"),
     "contracts": (900, "esi-contracts.read_character_contracts.v1"),
+    "contacts": (3600, "esi-characters.read_contacts.v1"),
 }
 
 async def sync_character(esi: ESI, char_id: int, force: bool = False) -> dict:
@@ -66,9 +67,10 @@ async def ensure_corporation(esi, corp_id: int) -> None:
     if not corp_id or is_npc_corp(corp_id):
         return
     info = await esi.get(f"/corporations/{corp_id}/")
-    db.ex("""INSERT INTO corporations (corporation_id, name, ticker, ceo_id) VALUES (?, ?, ?, ?)
+    db.ex("""INSERT INTO corporations (corporation_id, name, ticker, ceo_id, alliance_id) VALUES (?, ?, ?, ?, ?)
              ON CONFLICT(corporation_id) DO UPDATE SET name = excluded.name, ticker = excluded.ticker,
-             ceo_id = excluded.ceo_id""", (corp_id, info.get("name"), info.get("ticker"), info.get("ceo_id")))
+             ceo_id = excluded.ceo_id, alliance_id = excluded.alliance_id""",
+          (corp_id, info.get("name"), info.get("ticker"), info.get("ceo_id"), info.get("alliance_id")))
 
 
 async def sync_affiliation(esi, cid, token):
@@ -274,3 +276,10 @@ def snapshot_networth() -> str:
 
 
 character_networth = owner_networth  # backwards-compatible name
+
+
+async def sync_contacts(esi, cid, token):
+    from . import intel
+    data = await esi.get_pages(f"/characters/{cid}/contacts/", token=token)
+    intel.store_contacts(cid, data)
+    return f"{len(data)} contacts"

@@ -26,6 +26,9 @@ _Screenshots use live market data and a demo character._
 
 - **Assets tree:** browse like the in-game inventory: station → owner → corp hangar divisions → ships (by slot: high, mid, low, rigs, cargo, drones) and containers, with values rolled up at every level, search-as-you-type, market vs quick-sale totals and thin-market warnings.
 - **Map:** a zoomable map of New Eden showing where your characters are (live: system, docked or in space, ship, online), where your corp members are (member tracking, needs Director), plus asset value per system and your structures.
+- **Map intel (DOTLAN-style):** colour systems by ship/pod kills, jumps or NPC kills in the last hour, or by sovereignty; incursions; system popups with links to DOTLAN and zKillboard; and a route planner (shortest, safest or low/null) showing every jump's security and recent kills.
+- **Local checker:** paste the Local member list (Ctrl+A, Ctrl+C) to see every pilot's corp and alliance (grouped and counted), your blue/red standings, and zKillboard stats (danger, kills, losses, recent activity, ships flown), with hostiles and the most dangerous pilots first.
+- **D-scan parser:** paste directional-scan results to get ship counts by class and type, and what's on grid.
 - **Themes:** Dark, Light, Caldari, Amarr, Gallente and Minmatar, chosen per device.
 - **Contracts:** item-exchange and courier contracts for characters and corporations, with each contract's item value compared against its price.
 - **Alerts on the Dashboard:** undercut orders, structure fuel and reinforcement, skill queues running out, contracts about to expire, finished industry jobs and Pi health problems.

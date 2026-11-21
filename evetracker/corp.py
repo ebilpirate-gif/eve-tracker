@@ -29,11 +29,14 @@ STEPS = {
     "contracts": (900, "esi-contracts.read_corporation_contracts.v1", None),  # any member
     "structures": (900, "esi-corporations.read_structures.v1", {"Director", "Station_Manager"}),
     "members": (600, "esi-corporations.track_members.v1", {"Director"}),
+    "contacts": (3600, "esi-corporations.read_contacts.v1", None),
+    "alliance_contacts": (3600, "esi-alliances.read_contacts.v1", None),
 }
 LABELS = {
     "divisions": "Division names", "wallets": "Wallets", "transactions": "Transactions", "journal": "Journal",
     "orders": "Market orders", "industry": "Industry jobs", "assets": "Assets", "blueprints": "Blueprints",
     "contracts": "Contracts", "structures": "Structures", "members": "Member tracking",
+    "contacts": "Contacts", "alliance_contacts": "Alliance contacts",
 }
 DIVISIONS = range(1, 8)
 
@@ -334,3 +337,20 @@ def structures(fuel_warn_days: float = 7) -> list[dict]:
 async def sync_members(esi, corp_id, token, corp):
     from . import locations
     return await locations.sync_members(esi, corp_id, token)
+
+
+async def sync_contacts(esi, corp_id, token, corp):
+    from . import intel
+    data = await esi.get_pages(f"/corporations/{corp_id}/contacts/", token=token)
+    intel.store_contacts(corp_id, data)
+    return f"{len(data)} contacts"
+
+
+async def sync_alliance_contacts(esi, corp_id, token, corp):
+    from . import intel
+    alliance_id = corp.get("alliance_id")
+    if not alliance_id:
+        return "not in an alliance"
+    data = await esi.get_pages(f"/alliances/{alliance_id}/contacts/", token=token)
+    intel.store_contacts(alliance_id, data)
+    return f"{len(data)} alliance contacts"

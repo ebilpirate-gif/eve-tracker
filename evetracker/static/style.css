@@ -208,3 +208,39 @@ details[open] > summary.tn-row .tn-name::before { transform: rotate(90deg); }
   #map { height: 62vh; min-height: 320px; }
   .map-side { max-height: none; }
 }
+
+/* ---------- intel ---------- */
+:root { --blue: #4aa3ff; --orange: #ff9a3c; }
+[data-theme="light"] { --blue: #1f6fd1; --orange: #c86a12; }
+textarea.paste { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px; font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+textarea.paste:focus { outline: 1px solid var(--accent); }
+.chips-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border-radius: 999px; background: var(--panel2);
+  border: 1px solid var(--line); font-size: 13px; }
+.chip img { width: 22px; height: 22px; border-radius: 50%; }
+.chip.blue, .chip.lightblue { border-color: var(--blue); }
+.chip.red, .chip.orange { border-color: var(--bad); }
+.tag.blue, .tag.lightblue { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 50%, var(--panel)); }
+.tag.red { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--panel)); }
+.tag.orange { color: var(--orange); border-color: color-mix(in srgb, var(--orange) 50%, var(--panel)); }
+tr.standing-red td:first-child, tr.standing-orange td:first-child { box-shadow: inset 3px 0 var(--bad); }
+tr.standing-blue td:first-child, tr.standing-lightblue td:first-child { box-shadow: inset 3px 0 var(--blue); }
+.danger { display: inline-block; min-width: 46px; padding: 0 6px; border-radius: 4px; text-align: right;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--bad) 35%, transparent) var(--d), transparent var(--d)); }
+.dscan-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; }
+@media (max-width: 900px) { .dscan-grid { grid-template-columns: 1fr; } }
+
+/* ---------- map intel & routes ---------- */
+.map-route { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.map-route input { width: 150px; }
+.route-list { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px; }
+.route-list .hop { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 4px; background: var(--panel2);
+  font-size: 12px; border: 1px solid var(--line); cursor: pointer; }
+.route-list .hop i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.route-list .hop.kills { border-color: var(--bad); }
+.map-legend .scale { display: inline-flex; align-items: center; gap: 4px; }
+.map-legend .scale b { display: inline-block; width: 60px; height: 8px; border-radius: 4px; }
+
+/* the hidden attribute must win over display rules such as button { display: inline-block } */
+[hidden] { display: none !important; }

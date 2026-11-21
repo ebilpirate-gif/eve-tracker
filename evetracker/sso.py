@@ -41,6 +41,10 @@ SCOPES = [
     "esi-location.read_ship_type.v1",
     "esi-location.read_online.v1",
     "esi-corporations.track_members.v1",
+    # local checker: blue/red standings from your contacts
+    "esi-characters.read_contacts.v1",
+    "esi-corporations.read_contacts.v1",
+    "esi-alliances.read_contacts.v1",
 ]
 
 

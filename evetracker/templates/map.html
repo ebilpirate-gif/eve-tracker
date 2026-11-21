@@ -7,7 +7,28 @@
 {% if not has_scope %}
 <p class="banner">To show where your characters are, add <code>esi-location.read_location.v1</code>, <code>esi-location.read_ship_type.v1</code> and <code>esi-location.read_online.v1</code> to your EVE application (plus <code>esi-corporations.track_members.v1</code> for corp members), then log in again from <a href="/settings">Settings</a>.</p>
 {% endif %}
+<form class="map-route" id="route-form" autocomplete="off">
+  <b class="small">Route</b>
+  <input id="route-from" list="route-from-list" placeholder="From system" required>
+  <datalist id="route-from-list"></datalist>
+  <span class="muted">→</span>
+  <input id="route-to" list="map-systems" placeholder="To system" required>
+  <select id="route-flag"><option value="shortest">Shortest</option><option value="secure">Safest (high-sec)</option><option value="insecure">Prefer low/null</option></select>
+  <button class="small">Plot</button>
+  <button type="button" class="small" id="route-clear" hidden>Clear</button>
+  <span id="route-summary" class="small"></span>
+</form>
+<div id="route-hops" class="route-list"></div>
 <div class="map-tools">
+  <label>Colour systems by
+    <select id="map-color">
+      <option value="security">Security</option>
+      <option value="kills">Ship &amp; pod kills (last hour)</option>
+      <option value="jumps">Jumps (last hour)</option>
+      <option value="npc">NPC kills / ratting (last hour)</option>
+      <option value="sov">Sovereignty</option>
+    </select></label>
+  <label class="check"><input type="checkbox" data-layer="incursions" checked> Incursions</label>
   <label class="check"><input type="checkbox" data-layer="chars" checked> My characters</label>
   <label class="check"><input type="checkbox" data-layer="members" checked> Corp members</label>
   <label class="check"><input type="checkbox" data-layer="assets"> Asset value</label>
@@ -20,10 +41,10 @@
 </div>
 <div class="map-wrap">
   <div class="map-canvas-wrap card">
-    <canvas id="map" data-static="/api/map/static?v={{ map_v }}" data-live="/api/map/live" aria-label="Map of New Eden"></canvas>
+    <canvas id="map" data-static="/api/map/static?v={{ map_v }}" data-live="/api/map/live" data-intel="/api/map/intel" aria-label="Map of New Eden"></canvas>
     <div id="map-pop" class="map-pop" hidden></div>
     <div class="map-legend small">
-      <span><i class="sec-hi"></i>High-sec</span><span><i class="sec-lo"></i>Low-sec</span><span><i class="sec-null"></i>Null-sec</span>
+      <span id="legend-body"><span><i class="sec-hi"></i>High-sec</span> <span><i class="sec-lo"></i>Low-sec</span> <span><i class="sec-null"></i>Null-sec</span></span>
       <span class="muted">Scroll or pinch to zoom · drag to move · click a system</span>
     </div>
   </div>

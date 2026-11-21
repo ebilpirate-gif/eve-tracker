@@ -29,6 +29,7 @@ class Worker:
             "networth": (3600, self.job_networth),
             "maintenance": (86400, self.job_maintenance),
             "locations": (60, self.job_locations),
+            "universe": (3600, self.job_universe),
         }
         for key in db.get_setting("hubs"):
             if key in market.HUBS:
@@ -130,6 +131,10 @@ class Worker:
         db.ex("PRAGMA wal_checkpoint(TRUNCATE)")
         db.ex("PRAGMA optimize")
         return f"removed {cache} stale cache entries, {old_history} old volume records"
+
+    async def job_universe(self):
+        from . import intel
+        return await intel.update_universe(self.esi)
 
     async def job_locations(self):
         return await locations.sync_characters(self.esi)

@@ -4,8 +4,11 @@
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   const pop = document.getElementById("map-pop");
-  const layers = { chars: true, members: true, assets: false, structures: true, regions: true };
+  const layers = { chars: true, members: true, assets: false, structures: true, regions: true, incursions: true };
   let sys = [], byId = new Map(), jumps = [], regions = [], live = null;
+  // DOTLAN-style intel (hourly): per-system activity, sovereignty, incursions; plus a plotted route.
+  let intel = { stats: new Map(), sov: new Map(), owners: {}, incursions: new Set(), max: {} }, routePath = [];
+  let colorMode = "security";
   let view = { scale: 1, x: 0, y: 0 };  // screen = world * scale + offset
   let dpr = window.devicePixelRatio || 1, W = 0, H = 0, needsDraw = true, selected = null;
 
@@ -74,9 +77,20 @@
     for (const s of sys) {
       const [x, y] = toScreen(s[2], s[3]);
       if (x < -5 || y < -5 || x > W + 5 || y > H + 5) continue;
-      ctx.fillStyle = secColor(s[4]);
-      ctx.fillRect(x - r / 2, y - r / 2, r, r);
+      const [color, size] = systemStyle(s, r);
+      ctx.fillStyle = color;
+      if (size > r) { ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.arc(x, y, size / 2, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; }
+      else ctx.fillRect(x - size / 2, y - size / 2, size, size);
     }
+    if (layers.incursions && intel.incursions.size) {
+      ctx.strokeStyle = "#b45cff"; ctx.lineWidth = 1.5;
+      for (const sid of intel.incursions) {
+        const s = byId.get(sid); if (!s) continue;
+        const [x, y] = toScreen(s[2], s[3]);
+        ctx.beginPath(); ctx.arc(x, y, Math.max(4, r + 2), 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    if (routePath.length > 1) drawRoute();
     // system names when zoomed in
     if (z > 9) {
       ctx.font = "11px system-ui, sans-serif"; ctx.fillStyle = colors.muted; ctx.textAlign = "left";
@@ -106,6 +120,63 @@
       const s = byId.get(selected), [x, y] = toScreen(s[2], s[3]);
       ctx.strokeStyle = colors.text; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  function activity(sid, mode) {
+    const st = intel.stats.get(sid); if (!st) return 0;
+    return mode === "kills" ? st[1] + st[2] : mode === "jumps" ? st[0] : mode === "npc" ? st[3] : 0;
+  }
+  function hue(id) { let h = 0; const t = String(id); for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) % 360; return h; }
+  // Distinct colours for the biggest sov holders (similar ids would otherwise get similar hues).
+  const SOV_PALETTE = ["#e6194b", "#4363d8", "#ffe119", "#3cb44b", "#f58231", "#911eb4", "#46f0f0", "#f032e6", "#bcf60c",
+                       "#fabebe", "#008080", "#e6beff", "#9a6324", "#fffac8", "#800000", "#aaffc3", "#808000", "#ffd8b1"];
+  let sovRank = new Map();
+  function rankSov() {
+    const counts = new Map();
+    for (const o of intel.sov.values()) counts.set(o, (counts.get(o) || 0) + 1);
+    sovRank = new Map([...counts.entries()].sort((a, b) => b[1] - a[1]).map(([o], i) => [o, i]));
+  }
+  const sovColor = (o) => { const r = sovRank.get(o); return r !== undefined && r < SOV_PALETTE.length ? SOV_PALETTE[r] : `hsl(${hue(o)} 55% 55%)`; };
+  function systemStyle(s, r) {
+    if (colorMode === "security") return [secColor(s[4]), r];
+    if (colorMode === "sov") {
+      const owner = intel.sov.get(s[0]);
+      return owner ? [sovColor(owner), r * 1.3] : [colors.line, r];
+    }
+    const v = activity(s[0], colorMode);
+    if (!v) return [colors.line, r * 0.8];
+    const max = intel.max[colorMode] || 1, t = Math.log1p(v) / Math.log1p(max);
+    const base = colorMode === "kills" ? colors.bad : colorMode === "npc" ? colors.good : colors.accent;
+    return [base, r + t * Math.max(6, view.scale * 1.6)];
+  }
+  function drawRoute() {
+    ctx.strokeStyle = colors.accent; ctx.lineWidth = 3; ctx.globalAlpha = 0.9; ctx.beginPath();
+    routePath.forEach((hop, i) => {
+      const s = byId.get(hop.system_id); if (!s) return;
+      const [x, y] = toScreen(s[2], s[3]);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.stroke(); ctx.globalAlpha = 1;
+    for (const hop of routePath) {
+      const s = byId.get(hop.system_id); if (!s) continue;
+      const [x, y] = toScreen(s[2], s[3]);
+      ctx.fillStyle = hop.kills ? colors.bad : secColor(hop.sec);
+      ctx.beginPath(); ctx.arc(x, y, hop.kills ? 5 : 3.5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  function updateLegend() {
+    const el = document.getElementById("legend-body");
+    if (colorMode === "security") {
+      el.innerHTML = '<span><i class="sec-hi"></i>High-sec</span> <span><i class="sec-lo"></i>Low-sec</span> <span><i class="sec-null"></i>Null-sec</span>';
+    } else if (colorMode === "sov") {
+      const counts = new Map();
+      for (const o of intel.sov.values()) counts.set(o, (counts.get(o) || 0) + 1);
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+      el.innerHTML = top.map(([o, n]) => `<span><i style="background:${sovColor(o)}"></i>${esc(intel.owners[o] || o)} (${n})</span>`).join(" ");
+    } else {
+      const label = { kills: "ship & pod kills", jumps: "jumps", npc: "NPC kills" }[colorMode];
+      el.innerHTML = `<span class="scale">0 <b style="background:linear-gradient(90deg, ${colors.line}, ${colorMode === "kills" ? colors.bad : colorMode === "npc" ? colors.good : colors.accent})"></b> ${(intel.max[colorMode] || 0).toLocaleString()} ${label} in the last hour</span>`;
     }
   }
 
@@ -170,12 +241,18 @@
     const here = live ? live.characters.filter((c) => c.system_id === s[0]) : [];
     const mem = live ? live.members.filter((c) => c.system_id === s[0]) : [];
     const assets = live ? (live.assets.find((a) => a[0] === s[0]) || [0, 0])[1] : 0;
-    const st = live ? live.structures.filter((x) => x.system_id === s[0]) : [];
+    const structs = live ? live.structures.filter((x) => x.system_id === s[0]) : [];
+    const st = intel.stats.get(s[0]) || [0, 0, 0, 0];
+    const owner = intel.sov.get(s[0]);
     pop.innerHTML = `<b>${esc(s[1])}</b> <span style="color:${secColor(s[4])}">${s[4].toFixed(1)}</span>
-      <div class="muted small">${esc(region)}</div>
+      <div class="muted small">${esc(region)}${owner ? " · " + esc(intel.owners[owner] || owner) : ""}${intel.incursions.has(s[0]) ? ' · <span style="color:#b45cff">Incursion</span>' : ""}</div>
+      <div class="small">Last hour: <b class="${st[1] + st[2] ? "bad" : ""}">${st[1]} ships, ${st[2]} pods killed</b> · ${st[0]} jumps · ${st[3]} NPCs</div>
+      <div class="small"><a href="https://evemaps.dotlan.net/system/${encodeURIComponent(s[1].replace(/ /g, "_"))}" target="_blank" rel="noopener">DOTLAN</a> ·
+        <a href="https://zkillboard.com/system/${s[0]}/" target="_blank" rel="noopener">zKillboard</a> ·
+        <a href="#" data-route-to="${esc(s[1])}">Route here</a></div>
       ${here.map((c) => `<div>◉ ${esc(c.name)}${c.ship ? " · " + esc(c.ship) : ""}</div>`).join("")}
       ${mem.length ? `<div class="small">${mem.length} corp member${mem.length > 1 ? "s" : ""}: ${mem.slice(0, 6).map((m) => esc(m.name)).join(", ")}${mem.length > 6 ? "…" : ""}</div>` : ""}
-      ${st.map((x) => `<div class="small">◆ ${esc(x.name)} (${esc(x.state)})</div>`).join("")}
+      ${structs.map((x) => `<div class="small">◆ ${esc(x.name)} (${esc(x.state)})</div>`).join("")}
       ${assets ? `<div class="small">Assets here: ${isk(assets)}</div>` : ""}
       ${window.EVE_UI ? `<button type="button" class="eve-btn" data-waypoint="${s[0]}">⌖ Set destination</button>` : ""}`;
     pop.hidden = false;
@@ -217,6 +294,73 @@
       if (r.ok) { live = await r.json(); renderLists(); needsDraw = true; }
     } catch (_) {}
   }
+  async function loadIntel() {
+    try {
+      const d = await (await fetch(canvas.dataset.intel)).json();
+      intel.stats = new Map(d.stats.map((r) => [r[0], r.slice(1)]));
+      intel.sov = new Map(d.sov);
+      intel.owners = d.owners; intel.incursions = new Set(d.incursions);
+      intel.max = { kills: 0, jumps: 0, npc: 0 };
+      for (const st of intel.stats.values()) {
+        intel.max.kills = Math.max(intel.max.kills, st[1] + st[2]);
+        intel.max.jumps = Math.max(intel.max.jumps, st[0]); intel.max.npc = Math.max(intel.max.npc, st[3]);
+      }
+      rankSov(); updateLegend(); needsDraw = true;
+    } catch (_) {}
+  }
+
+  // ---------- route planner ----------
+  const routeForm = document.getElementById("route-form");
+  function fillRouteFrom() {
+    const dl = document.getElementById("route-from-list");
+    const chars = (live ? live.characters : []).filter((c) => c.system);
+    dl.innerHTML = chars.map((c) => `<option value="${esc(c.system)}">${esc(c.name)}</option>`).join("") +
+      sys.map((s) => `<option value="${esc(s[1])}">`).join("");
+  }
+  async function plotRoute() {
+    const from = document.getElementById("route-from").value, to = document.getElementById("route-to").value;
+    const flag = document.getElementById("route-flag").value;
+    const summary = document.getElementById("route-summary");
+    summary.textContent = "Plotting…";
+    const r = await fetch(`/api/route?origin=${encodeURIComponent(from)}&destination=${encodeURIComponent(to)}&flag=${flag}`);
+    const d = await r.json();
+    if (d.error) { summary.innerHTML = `<span class="bad">${esc(d.error)}</span>`; return; }
+    routePath = d.path;
+    const last = d.path[d.path.length - 1];
+    summary.innerHTML = `<b>${d.jumps} jumps</b> ${esc(d.from)} → ${esc(d.to)} · lowest sec <span style="color:${secColor(d.lowest_sec)}">${d.lowest_sec.toFixed(1)}</span>
+      · <span class="${d.kills ? "bad" : ""}">${d.kills} kills on route in the last hour</span>
+      ${window.EVE_UI ? `<button type="button" class="eve-btn" data-waypoint="${last.system_id}">⌖ Set destination</button>` : ""}`;
+    document.getElementById("route-hops").innerHTML = d.path.map((h) =>
+      `<span class="hop ${h.kills ? "kills" : ""}" data-system="${h.system_id}" title="${esc(h.region)} · ${h.kills} kills, ${h.jumps} jumps last hour"><i style="background:${secColor(h.sec)}"></i>${esc(h.name)}${h.kills ? ` <b class="bad">${h.kills}</b>` : ""}</span>`).join("");
+    document.getElementById("route-clear").hidden = false;
+    // zoom to show the whole route
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const h of d.path) { const s = byId.get(h.system_id); if (!s) continue; x0 = Math.min(x0, s[2]); x1 = Math.max(x1, s[2]); y0 = Math.min(y0, s[3]); y1 = Math.max(y1, s[3]); }
+    if (isFinite(x0)) {
+      const pad = 60, sc = Math.min(60, Math.min((W - pad * 2) / Math.max(x1 - x0, 1), (H - pad * 2) / Math.max(y1 - y0, 1)));
+      view = { scale: sc, x: W / 2 - (x0 + x1) / 2 * sc, y: H / 2 - (y0 + y1) / 2 * sc };
+    }
+    needsDraw = true;
+  }
+  routeForm.addEventListener("submit", (e) => { e.preventDefault(); plotRoute(); });
+  document.getElementById("route-clear").addEventListener("click", () => {
+    routePath = []; document.getElementById("route-hops").innerHTML = ""; document.getElementById("route-summary").textContent = "";
+    document.getElementById("route-clear").hidden = true; needsDraw = true;
+  });
+  document.addEventListener("click", (e) => {
+    const hop = e.target.closest(".hop[data-system]");
+    if (hop) centerOn(Number(hop.dataset.system), Math.max(view.scale, 18));
+    const rt = e.target.closest("[data-route-to]");
+    if (rt) {
+      e.preventDefault();
+      document.getElementById("route-to").value = rt.dataset.routeTo;
+      const from = document.getElementById("route-from");
+      if (!from.value && live) { const c = live.characters.find((x) => x.system); if (c) from.value = c.system; }
+      if (from.value) plotRoute(); else from.focus();
+    }
+  });
+  document.getElementById("map-color").addEventListener("change", (e) => { colorMode = e.target.value; updateLegend(); needsDraw = true; });
+
   async function init() {
     readColors(); resize();
     const data = await (await fetch(canvas.dataset.static)).json();
@@ -225,8 +369,10 @@
     const dl = document.getElementById("map-systems");
     dl.innerHTML = sys.map((s) => `<option value="${esc(s[1])}">`).join("");
     fit(); requestAnimationFrame(loop);
-    await loadLive();
+    await Promise.all([loadLive(), loadIntel()]);
+    fillRouteFrom();
     setInterval(loadLive, 60000);
+    setInterval(loadIntel, 10 * 60000);
   }
 
   // ---------- interaction ----------
@@ -280,7 +426,7 @@
     if (s) centerOn(s[0], Math.max(view.scale, 18));
   });
   window.addEventListener("resize", () => { const c = toWorld(W / 2, H / 2); resize(); view.x = W / 2 - c[0] * view.scale; view.y = H / 2 - c[1] * view.scale; });
-  document.addEventListener("themechange", () => { readColors(); needsDraw = true; });
+  document.addEventListener("themechange", () => { readColors(); updateLegend(); needsDraw = true; });
 
   init();
 })();

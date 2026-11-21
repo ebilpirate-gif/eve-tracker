@@ -152,6 +152,19 @@ FAKE = {
         {"character_id": 92000005, "location_id": 30002187, "ship_type_id": 587,
          "logon_date": "2026-11-01T10:00:00Z", "logoff_date": "2026-11-01T12:00:00Z"}],
     f"/characters/{CID}/location/": {"solar_system_id": 30000142, "station_id": 60003760},
+    "/universe/system_jumps/": [{"system_id": 30000142, "ship_jumps": 900}, {"system_id": 30000144, "ship_jumps": 50}],
+    "/universe/system_kills/": [{"system_id": 30000144, "ship_kills": 3, "pod_kills": 1, "npc_kills": 0},
+                                {"system_id": 30002187, "ship_kills": 0, "pod_kills": 0, "npc_kills": 40}],
+    "/sovereignty/map/": [{"system_id": 30000142, "faction_id": 500001},
+                          {"system_id": 30002187, "alliance_id": 99000001, "corporation_id": 98000099}],
+    "/incursions/": [{"infested_solar_systems": [30002187], "state": "established"}],
+    "/route/30000142/30002187/": [30000142, 30000144, 30002187],
+    "/corporations/98000050/": {"name": "Hostile Corp", "ticker": "HOST", "alliance_id": 99000001},
+    "/corporations/98000060/": {"name": "Blue Corp", "ticker": "BLUE"},
+    "/alliances/99000001/": {"name": "Red Alliance", "ticker": "RED"},
+    f"/characters/{CID}/contacts/": [{"contact_id": 99000001, "contact_type": "alliance", "standing": -10.0},
+                                     {"contact_id": 98000060, "contact_type": "corporation", "standing": 5.0}],
+    f"/corporations/{CORP}/contacts/": [{"contact_id": 92000201, "contact_type": "character", "standing": 10.0}],
     f"/characters/{CID}/ship/": {"ship_type_id": 587, "ship_name": "Mining Boat", "ship_item_id": 1},
     f"/characters/{CID}/online/": {"online": True, "last_login": "2026-11-08T10:00:00Z"},
     f"/characters/{CID}/wallet/": 1_234_567.89,
@@ -210,6 +223,16 @@ def fake_handler(request: httpx.Request):
     path = request.url.path
     if path.startswith(f"/corporations/{CORP}/wallets/") and path not in FAKE:
         return httpx.Response(200, json=[], headers={"x-pages": "1"})  # empty wallet divisions
+    if path == "/universe/ids/":
+        known = {"Red One": 92000201, "Red Two": 92000202, "Blue Guy": 92000203, "Corp Mate": CID}
+        names = json.loads(request.content)
+        return httpx.Response(200, json={"characters": [{"id": known[n], "name": n} for n in names if n in known]})
+    if path == "/characters/affiliation/":
+        aff = {92000201: (98000050, 99000001), 92000202: (98000050, 99000001), 92000203: (98000060, None),
+               CID: (CORP, None)}
+        return httpx.Response(200, json=[dict(character_id=i, corporation_id=aff[i][0],
+                                              **({"alliance_id": aff[i][1]} if aff[i][1] else {}))
+                                         for i in json.loads(request.content)])
     if path == "/universe/names/":
         ids = json.loads(request.content)
         return httpx.Response(200, json=[{"id": i, "name": f"Pilot {i}", "category": "character"} for i in ids])
@@ -804,3 +827,90 @@ def test_themes(fake_char):
         assert 'data-theme="caldari"' in page and 'data-theme-choice="minmatar"' in page
         client.cookies.set("theme", "<script>")
         assert 'data-theme="dark"' in client.get("/").text  # unknown values fall back safely
+
+
+
+def test_intel_universe_route_and_local(fake_char):
+    from evetracker import intel
+    _mini_map()
+    _sync_all_fake()
+    esi = _fake_esi()
+    msg = asyncio.run(intel.update_universe(esi))
+    assert "1 incursion" in msg
+    m = intel.map_intel()
+    stats = {r[0]: r[1:] for r in m["stats"]}
+    assert stats[30000144] == [50, 3, 1, 0] and stats[30002187][3] == 40
+    assert dict(m["sov"])[30002187] == 99000001 and m["incursions"] == [30002187]
+    path = asyncio.run(intel.route(esi, 30000142, 30002187, "secure"))
+    assert [p["name"] for p in path] == ["Jita", "Perimeter", "Amarr"] and path[1]["kills"] == 4
+    assert intel.find_system("jita")["system_id"] == 30000142 and intel.find_system("Perim")["name"] == "Perimeter"
+    # local checker: paste with blank lines, duplicates, junk and an unknown name
+    paste = "Red One\nRed Two\n\nBlue Guy\nCorp Mate\nred one\nNobody Here\n<script>\n"
+    assert intel.parse_names(paste) == ["Red One", "Red Two", "Blue Guy", "Corp Mate", "Nobody Here"]
+    r = asyncio.run(intel.check_local(esi, paste))
+    assert r["count"] == 4 and r["unknown"] == ["Nobody Here"]
+    by = {p["name"]: p for p in r["pilots"]}
+    # personal pilot contact (+10 on corp list) beats the alliance -10 for Red One
+    assert by["Red One"]["standing"] == 10.0 and by["Red Two"]["standing"] == -10.0
+    assert by["Blue Guy"]["standing"] == 5.0 and by["Corp Mate"]["standing"] == 10.0
+    assert by["Red Two"]["alliance_ticker"] == "RED" and by["Red Two"]["corp_ticker"] == "HOST"
+    assert r["pilots"][0]["name"] == "Red Two"          # hostiles first
+    assert r["groups"][0]["ticker"] == "RED" and r["groups"][0]["count"] == 2
+    assert r["hostile"] == 1 and r["friendly"] == 3
+    with logged_in_client() as client:
+        client.app.state.worker.esi = _fake_esi()
+        assert "Local checker" in client.get("/intel").text and "D-scan" in client.get("/intel?tab=dscan").text
+        assert client.post("/api/intel/local", json={"text": paste}).json()["count"] == 4
+        rt = client.get("/api/route?origin=jita&destination=Amarr&flag=secure").json()
+        assert rt["jumps"] == 2 and rt["kills"] == 4 and rt["lowest_sec"] == 0.9
+        db.ex("INSERT OR REPLACE INTO char_location (character_id, system_id) VALUES (?, 30000142)", (CID,))
+        assert client.get(f"/api/route?origin=char:{CID}&destination=Amarr").json()["from"] == "Jita"
+        assert client.get("/api/route?origin=Nowhere&destination=Amarr").status_code == 400
+        assert client.get("/api/map/intel").json()["owners"]["99000001"] == "Pilot 99000001"
+
+
+def test_zkill_summary_and_cache(fake_char):
+    from evetracker import intel
+    sample = {"shipsDestroyed": 6379, "shipsLost": 189, "iskDestroyed": 3.66e12, "iskLost": 2.56e10, "dangerRatio": 97,
+              "gangRatio": 76, "soloKills": 1571, "avgGangSize": 13.6, "activepvp": {"kills": {"count": 148}},
+              "topLists": [{"type": "shipType", "values": [{"shipTypeID": 28665, "shipName": "Vargur",
+                                                            "groupName": "Marauder", "kills": 223}]}]}
+    z = intel.summarize_zkill(sample)
+    assert z["kills"] == 6379 and z["danger"] == 97 and z["recent_kills"] == 148 and z["ships"][0]["name"] == "Vargur"
+    assert intel.summarize_zkill({"shipsLost": 11})["kills"] == 0  # a pilot with no kills
+
+    calls = []
+
+    def zk(request):
+        calls.append(str(request.url))
+        if request.url.path.endswith("/kills/"):
+            return httpx.Response(200, json=sample)
+        return httpx.Response(302, headers={"location": request.url.path + "kills/"})
+
+    db.ex("DELETE FROM zkill_stats")
+    client = httpx.AsyncClient(transport=httpx.MockTransport(zk), follow_redirects=True)
+    got = asyncio.run(intel.zkill_stats([92000201, 92000201], client))
+    assert got[92000201]["kills"] == 6379 and len(calls) == 2   # followed the redirect once, deduplicated
+    asyncio.run(intel.zkill_stats([92000201], client))
+    assert len(calls) == 2                                       # served from the 6-hour cache
+
+
+def test_dscan_parser(fake_char):
+    from evetracker import intel
+    db.ex("INSERT OR REPLACE INTO groups_ VALUES (25, 6, 'Frigate'), (27, 6, 'Battleship'), (1657, 65, 'Citadel'), "
+          "(4, 2, 'Celestial')")
+    db.ex("INSERT OR REPLACE INTO types (type_id, group_id, name, published) VALUES (587, 25, 'Rifter', 1), "
+          "(24690, 27, 'Hyperion', 1), (35832, 1657, 'Astrahus', 1), (14, 4, 'Moon', 1)")
+    intel._type_index["at"] = 0
+    scan = "\n".join([
+        "587\tBob's Rifter\tRifter\t2,450 km",
+        "587\tRifter\tRifter\t1.2 AU",
+        "24690\tbig boy\tHyperion\t8,000 km",
+        "35832\tPHLD Fort\tAstrahus\t-",
+        "14\tJita IV - Moon 4\tMoon\t0.5 AU",
+        "garbage line"])
+    d = intel.parse_dscan(scan)
+    assert d["ships"] == 3 and d["total"] == 4 and d["on_grid"] == 2
+    assert d["types"][0]["name"] == "Rifter" and d["types"][0]["count"] == 2 and d["types"][0]["on_grid"] == 1
+    assert [g["group"] for g in d["groups"]][:2] == ["Frigate", "Battleship"]
+    assert intel._distance_km("1.2 AU") > 1e8 and intel._distance_km("500 m") == 0.5

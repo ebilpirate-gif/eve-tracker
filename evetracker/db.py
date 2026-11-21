@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS characters (
 );
 CREATE TABLE IF NOT EXISTS corporations (
     corporation_id INTEGER PRIMARY KEY, name TEXT, ticker TEXT, ceo_id INTEGER, enabled INTEGER DEFAULT 1,
-    divisions TEXT, access TEXT, last_sync REAL, sync_error TEXT
+    divisions TEXT, access TEXT, last_sync REAL, sync_error TEXT, alliance_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS corp_wallets (corporation_id INTEGER, division INTEGER, balance REAL,
     PRIMARY KEY (corporation_id, division));
@@ -140,6 +140,15 @@ CREATE TABLE IF NOT EXISTS names (id INTEGER PRIMARY KEY, name TEXT, category TE
 CREATE TABLE IF NOT EXISTS char_location (character_id INTEGER PRIMARY KEY, system_id INTEGER, station_id INTEGER,
     structure_id INTEGER, ship_type_id INTEGER, ship_name TEXT, online INTEGER, last_login TEXT, last_logout TEXT,
     updated REAL);
+-- ---------- intel: DOTLAN-style system stats, sovereignty, standings, pilot lookups ----------
+CREATE TABLE IF NOT EXISTS system_stats (system_id INTEGER PRIMARY KEY, jumps INTEGER DEFAULT 0, ship_kills INTEGER DEFAULT 0,
+    pod_kills INTEGER DEFAULT 0, npc_kills INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS sov (system_id INTEGER PRIMARY KEY, alliance_id INTEGER, corporation_id INTEGER, faction_id INTEGER);
+CREATE TABLE IF NOT EXISTS contacts (owner_id INTEGER, contact_id INTEGER, contact_type TEXT, standing REAL,
+    PRIMARY KEY (owner_id, contact_id));
+CREATE TABLE IF NOT EXISTS entity_info (id INTEGER PRIMARY KEY, kind TEXT, name TEXT, ticker TEXT, alliance_id INTEGER,
+    fetched_at REAL);
+CREATE TABLE IF NOT EXISTS zkill_stats (character_id INTEGER PRIMARY KEY, data TEXT, fetched_at REAL);
 CREATE TABLE IF NOT EXISTS corp_members (character_id INTEGER PRIMARY KEY, corporation_id INTEGER,
     location_id INTEGER, system_id INTEGER, ship_type_id INTEGER, logon_date TEXT, logoff_date TEXT, updated REAL);
 """
@@ -189,7 +198,7 @@ def migrate(c) -> None:
     for table, col, decl in (("characters", "roles", "TEXT"), ("orders", "wallet_division", "INTEGER"),
                              ("characters", "total_sp", "INTEGER"), ("regions", "x", "REAL"),
                              ("regions", "z", "REAL"), ("systems", "x", "REAL"), ("systems", "z", "REAL"),
-                             ("systems", "constellation_id", "INTEGER")):
+                             ("systems", "constellation_id", "INTEGER"), ("corporations", "alliance_id", "INTEGER")):
         if col not in _columns(c, table):
             c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     # Corporation support: transactions/journal need composite keys (the same id can appear
